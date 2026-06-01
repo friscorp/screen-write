@@ -1,0 +1,751 @@
+"use client"
+
+import type React from "react"
+
+import { useState, useRef, useEffect, useCallback } from "react"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Textarea } from "@/components/ui/textarea"
+import { Trash2, Volume2, VolumeX, AlertCircle, Settings, ChevronDown, ChevronUp, Eye, EyeOff, Pencil, MessageSquare } from "lucide-react"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
+import { Slider } from "@/components/ui/slider"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { AACBoard } from "@/components/aac-board"
+
+export default function SmartDrawingEditor() {
+  const [drawEnabled, setDrawEnabled] = useState(false)
+  const [activeTab, setActiveTab] = useState("communicate")
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const [isDrawing, setIsDrawing] = useState(false)
+  const [outputText, setOutputText] = useState("")
+  const [isProcessing, setIsProcessing] = useState(false)
+  const pauseTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const [lastActivity, setLastActivity] = useState(Date.now())
+  const [isSpeaking, setIsSpeaking] = useState(false)
+  const [voiceEnabled, setVoiceEnabled] = useState(true)
+  const speechSynthesisRef = useRef<SpeechSynthesisUtterance | null>(null)
+  const [errorMessage, setErrorMessage] = useState("")
+  const [pauseDuration, setPauseDuration] = useState(2) // Default 2 seconds
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [textAreaExpanded, setTextAreaExpanded] = useState(false)
+
+  // Text-to-speech function
+  const speakText = useCallback(
+    (text: string) => {
+      if (!voiceEnabled || !text.trim()) return
+
+      // Cancel any ongoing speech
+      if (speechSynthesisRef.current) {
+        window.speechSynthesis.cancel()
+      }
+
+      // Create new speech synthesis utterance
+      const utterance = new SpeechSynthesisUtterance(text)
+      speechSynthesisRef.current = utterance
+
+      // Configure speech settings
+      utterance.rate = 0.8 // Slightly slower for kids
+      utterance.pitch = 1.1 // Slightly higher pitch
+      utterance.volume = 0.9
+
+      // Set up event listeners
+      utterance.onstart = () => {
+        setIsSpeaking(true)
+      }
+
+      utterance.onend = () => {
+        setIsSpeaking(false)
+        speechSynthesisRef.current = null
+      }
+
+      utterance.onerror = () => {
+        setIsSpeaking(false)
+        speechSynthesisRef.current = null
+        console.error("Speech synthesis error")
+      }
+
+      // Speak the text
+      window.speechSynthesis.speak(utterance)
+    },
+    [voiceEnabled],
+  )
+
+  // Initialize canvas
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+
+    const ctx = canvas.getContext("2d")
+    if (!ctx) return
+
+    // Set canvas size to match display size
+    const rect = canvas.getBoundingClientRect()
+    canvas.width = rect.width
+    canvas.height = rect.height
+
+    // Set drawing properties
+    ctx.lineCap = "round"
+    ctx.lineJoin = "round"
+    ctx.strokeStyle = "#000000"
+    ctx.lineWidth = 3
+
+    // Fill with white background
+    ctx.fillStyle = "#ffffff"
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+  }, [])
+
+  // Load settings from localStorage
+  useEffect(() => {
+    const savedPauseDuration = localStorage.getItem("pauseDuration")
+    if (savedPauseDuration) {
+      setPauseDuration(Number.parseInt(savedPauseDuration, 10))
+    }
+
+    const savedVoiceEnabled = localStorage.getItem("voiceEnabled")
+    if (savedVoiceEnabled !== null) {
+      setVoiceEnabled(savedVoiceEnabled === "true")
+    }
+
+    const savedTextAreaExpanded = localStorage.getItem("textAreaExpanded")
+    if (savedTextAreaExpanded !== null) {
+      setTextAreaExpanded(savedTextAreaExpanded === "true")
+    }
+
+    const savedDrawEnabled = localStorage.getItem("drawEnabled")
+    if (savedDrawEnabled !== null) {
+      setDrawEnabled(savedDrawEnabled === "true")
+    }
+  }, [])
+
+  // Save settings to localStorage
+  useEffect(() => {
+    localStorage.setItem("pauseDuration", pauseDuration.toString())
+  }, [pauseDuration])
+
+  useEffect(() => {
+    localStorage.setItem("voiceEnabled", voiceEnabled.toString())
+  }, [voiceEnabled])
+
+  useEffect(() => {
+    localStorage.setItem("textAreaExpanded", textAreaExpanded.toString())
+  }, [textAreaExpanded])
+
+  useEffect(() => {
+    localStorage.setItem("drawEnabled", drawEnabled.toString())
+  }, [drawEnabled])
+
+  // Add resize handler
+  useEffect(() => {
+    const handleResize = () => {
+      const canvas = canvasRef.current
+      if (!canvas) return
+
+      const ctx = canvas.getContext("2d")
+      if (!ctx) return
+
+      // Save current drawing
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+
+      // Resize canvas to match display size
+      const rect = canvas.getBoundingClientRect()
+      canvas.width = rect.width
+      canvas.height = rect.height
+
+      // Restore drawing properties
+      ctx.lineCap = "round"
+      ctx.lineJoin = "round"
+      ctx.strokeStyle = "#000000"
+      ctx.lineWidth = 3
+
+      // Fill with white background
+      ctx.fillStyle = "#ffffff"
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+      // Restore the drawing (if it fits)
+      if (imageData.width <= canvas.width && imageData.height <= canvas.height) {
+        ctx.putImageData(imageData, 0, 0)
+      }
+    }
+
+    window.addEventListener("resize", handleResize)
+    return () => window.removeEventListener("resize", handleResize)
+  }, [])
+
+  // Handle pause detection and image processing
+  const handlePause = useCallback(async () => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+
+    // Check if canvas has any drawing
+    const ctx = canvas.getContext("2d")
+    if (!ctx) return
+
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+    const pixels = imageData.data
+    let hasDrawing = false
+
+    // Check if there's any non-white pixel
+    for (let i = 0; i < pixels.length; i += 4) {
+      if (pixels[i] !== 255 || pixels[i + 1] !== 255 || pixels[i + 2] !== 255) {
+        hasDrawing = true
+        break
+      }
+    }
+
+    if (!hasDrawing) return
+
+    setIsProcessing(true)
+    setErrorMessage("") // Clear any previous error
+
+    try {
+      // Convert canvas to base64
+      const imageDataUrl = canvas.toDataURL("image/png")
+
+      // Send to API
+      const response = await fetch("/api/analyze-drawing", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          image: imageDataUrl,
+          previousText: outputText.trim() ? outputText : "", // Only send if there's actual text
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to analyze drawing")
+      }
+
+      const result = await response.json()
+
+      if (result.success === false) {
+        // Show error message, don't update text
+        setErrorMessage(result.error || "Could not recognize the drawing")
+      } else {
+        // Success: update text and speak only new content
+        setOutputText(result.text || "")
+
+        // Speak only the newly recognized content
+        const newContent = result.newContent || ""
+        if (newContent.trim()) {
+          setTimeout(() => {
+            speakText(newContent)
+          }, 500) // Small delay to ensure UI updates first
+        }
+      }
+
+      // Clear canvas after processing (success or failure)
+      clearCanvas()
+    } catch (error) {
+      console.error("Error analyzing drawing:", error)
+      setErrorMessage("Error analyzing drawing. Please try again.")
+    } finally {
+      setIsProcessing(false)
+    }
+  }, [outputText, speakText])
+
+  // Stop speaking function
+  const stopSpeaking = useCallback(() => {
+    window.speechSynthesis.cancel()
+    setIsSpeaking(false)
+    speechSynthesisRef.current = null
+  }, [])
+
+  // Reset pause timer
+  const resetPauseTimer = useCallback(() => {
+    if (pauseTimerRef.current) {
+      clearTimeout(pauseTimerRef.current)
+    }
+
+    pauseTimerRef.current = setTimeout(() => {
+      handlePause()
+    }, pauseDuration * 1000) // Use configurable pause duration
+
+    setLastActivity(Date.now())
+  }, [handlePause, pauseDuration])
+
+  // Drawing functions
+  const startDrawing = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+
+    const rect = canvas.getBoundingClientRect()
+    const scaleX = canvas.width / rect.width
+    const scaleY = canvas.height / rect.height
+
+    const x = (e.clientX - rect.left) * scaleX
+    const y = (e.clientY - rect.top) * scaleY
+
+    const ctx = canvas.getContext("2d")
+    if (!ctx) return
+
+    setIsDrawing(true)
+    ctx.beginPath()
+    ctx.moveTo(x, y)
+
+    resetPauseTimer()
+    setErrorMessage("") // Clear error when starting to draw
+  }
+
+  const draw = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!isDrawing) return
+
+    const canvas = canvasRef.current
+    if (!canvas) return
+
+    const rect = canvas.getBoundingClientRect()
+    const scaleX = canvas.width / rect.width
+    const scaleY = canvas.height / rect.height
+
+    const x = (e.clientX - rect.left) * scaleX
+    const y = (e.clientY - rect.top) * scaleY
+
+    const ctx = canvas.getContext("2d")
+    if (!ctx) return
+
+    ctx.lineTo(x, y)
+    ctx.stroke()
+
+    resetPauseTimer()
+  }
+
+  const stopDrawing = () => {
+    setIsDrawing(false)
+  }
+
+  // Touch events for mobile/tablet support
+  const handleTouchStart = (e: React.TouchEvent<HTMLCanvasElement>) => {
+    e.preventDefault()
+    const touch = e.touches[0]
+    const canvas = canvasRef.current
+    if (!canvas) return
+
+    const rect = canvas.getBoundingClientRect()
+    const scaleX = canvas.width / rect.width
+    const scaleY = canvas.height / rect.height
+
+    const x = (touch.clientX - rect.left) * scaleX
+    const y = (touch.clientY - rect.top) * scaleY
+
+    const ctx = canvas.getContext("2d")
+    if (!ctx) return
+
+    setIsDrawing(true)
+    ctx.beginPath()
+    ctx.moveTo(x, y)
+
+    resetPauseTimer()
+    setErrorMessage("") // Clear error when starting to draw
+  }
+
+  const handleTouchMove = (e: React.TouchEvent<HTMLCanvasElement>) => {
+    e.preventDefault()
+    if (!isDrawing) return
+
+    const touch = e.touches[0]
+    const canvas = canvasRef.current
+    if (!canvas) return
+
+    const rect = canvas.getBoundingClientRect()
+    const scaleX = canvas.width / rect.width
+    const scaleY = canvas.height / rect.height
+
+    const x = (touch.clientX - rect.left) * scaleX
+    const y = (touch.clientY - rect.top) * scaleY
+
+    const ctx = canvas.getContext("2d")
+    if (!ctx) return
+
+    ctx.lineTo(x, y)
+    ctx.stroke()
+
+    resetPauseTimer()
+  }
+
+  const handleTouchEnd = (e: React.TouchEvent<HTMLCanvasElement>) => {
+    e.preventDefault()
+    setIsDrawing(false)
+  }
+
+  const clearCanvas = () => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+
+    const ctx = canvas.getContext("2d")
+    if (!ctx) return
+
+    ctx.fillStyle = "#ffffff"
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+    // Clear pause timer
+    if (pauseTimerRef.current) {
+      clearTimeout(pauseTimerRef.current)
+    }
+  }
+
+  const clearAll = () => {
+    stopSpeaking() // Stop any ongoing speech
+    clearCanvas()
+    setOutputText("") // This will reset the context for the next drawing
+    setErrorMessage("") // Clear any error messages
+
+    // Also clear any pending pause timer
+    if (pauseTimerRef.current) {
+      clearTimeout(pauseTimerRef.current)
+    }
+  }
+
+  // Get preview text for collapsed state
+  const getPreviewText = () => {
+    if (!outputText.trim()) return "No text recognized yet..."
+    const words = outputText.trim().split(/\s+/)
+    if (words.length <= 8) return outputText
+    return words.slice(-8).join(" ") + "..."
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50 p-4">
+      <div className="max-w-6xl mx-auto space-y-6">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <h1 className="text-3xl font-bold text-gray-800">Smart Communication Tool</h1>
+          <div className="flex items-center gap-2">
+            {activeTab === "draw" && drawEnabled && (
+              <Button
+                variant={voiceEnabled ? "default" : "outline"}
+                size="sm"
+                onClick={() => setVoiceEnabled(!voiceEnabled)}
+                className="flex items-center gap-2"
+              >
+                {voiceEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+                {voiceEnabled ? "Voice On" : "Voice Off"}
+              </Button>
+            )}
+
+            <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+              <DialogTrigger asChild>
+                <Button variant="outline" size="sm" className="flex items-center gap-2 bg-transparent">
+                  <Settings className="w-4 h-4" />
+                  Settings
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-[425px]">
+                <DialogHeader>
+                  <DialogTitle>Settings</DialogTitle>
+                  <DialogDescription>Configure how the Smart Communication Tool works for you.</DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-6 py-4">
+                  <div className="space-y-4">
+                    {/* Draw Tab Toggle */}
+                    <div className="pb-4 border-b">
+                      <Label className="text-base font-medium">Tabs</Label>
+                      <div className="flex items-center justify-between mt-2">
+                        <span className="text-sm">Enable Draw tab</span>
+                        <Button
+                          variant={drawEnabled ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => {
+                            setDrawEnabled(!drawEnabled)
+                            // If disabling and currently on draw tab, switch to communicate
+                            if (drawEnabled && activeTab === "draw") {
+                              setActiveTab("communicate")
+                            }
+                          }}
+                          className="flex items-center gap-2"
+                        >
+                          {drawEnabled ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                          {drawEnabled ? "Enabled" : "Disabled"}
+                        </Button>
+                      </div>
+                      <p className="text-xs text-gray-600 mt-1">Show the drawing recognition tab</p>
+                    </div>
+
+                    <div>
+                      <Label htmlFor="pause-duration" className="text-base font-medium">
+                        Pause Duration: {pauseDuration} second{pauseDuration !== 1 ? "s" : ""}
+                      </Label>
+                      <p className="text-sm text-gray-600 mb-3">
+                        How long to wait after you stop drawing before analyzing the image
+                      </p>
+                      <Slider
+                        id="pause-duration"
+                        min={1}
+                        max={10}
+                        step={1}
+                        value={[pauseDuration]}
+                        onValueChange={(value) => setPauseDuration(value[0])}
+                        className="w-full"
+                      />
+                      <div className="flex justify-between text-xs text-gray-500 mt-1">
+                        <span>1s (Fast)</span>
+                        <span>5s (Medium)</span>
+                        <span>10s (Slow)</span>
+                      </div>
+                    </div>
+
+                    <div className="pt-4 border-t">
+                      <Label className="text-base font-medium">Voice Settings</Label>
+                      <div className="flex items-center justify-between mt-2">
+                        <span className="text-sm">Enable voice output</span>
+                        <Button
+                          variant={voiceEnabled ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => setVoiceEnabled(!voiceEnabled)}
+                          className="flex items-center gap-2"
+                        >
+                          {voiceEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+                          {voiceEnabled ? "On" : "Off"}
+                        </Button>
+                      </div>
+                      <p className="text-xs text-gray-600 mt-1">Automatically read recognized text aloud</p>
+                    </div>
+
+                    <div className="pt-4 border-t">
+                      <Label className="text-base font-medium">Display Settings</Label>
+                      <div className="flex items-center justify-between mt-2">
+                        <span className="text-sm">Show text area by default</span>
+                        <Button
+                          variant={textAreaExpanded ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => setTextAreaExpanded(!textAreaExpanded)}
+                          className="flex items-center gap-2"
+                        >
+                          {textAreaExpanded ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                          {textAreaExpanded ? "Shown" : "Hidden"}
+                        </Button>
+                      </div>
+                      <p className="text-xs text-gray-600 mt-1">Whether to show the text area expanded by default</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex justify-end">
+                  <Button onClick={() => setSettingsOpen(false)}>Done</Button>
+                </div>
+              </DialogContent>
+            </Dialog>
+          </div>
+        </div>
+
+        {/* Tab Navigation */}
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <TabsList className={`grid w-full h-14 ${drawEnabled ? "grid-cols-2" : "grid-cols-1"}`}>
+            <TabsTrigger value="communicate" className="flex items-center gap-2 text-lg">
+              <MessageSquare className="w-5 h-5" />
+              Communicate
+            </TabsTrigger>
+            {drawEnabled && (
+              <TabsTrigger value="draw" className="flex items-center gap-2 text-lg">
+                <Pencil className="w-5 h-5" />
+                Draw
+              </TabsTrigger>
+            )}
+          </TabsList>
+
+          {/* Communicate Tab Content */}
+          <TabsContent value="communicate" className="mt-6">
+            <AACBoard />
+          </TabsContent>
+
+          {/* Draw Tab Content */}
+          {drawEnabled && (
+            <TabsContent value="draw" className="space-y-6 mt-6">
+            {/* Error Message */}
+            {errorMessage && (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{errorMessage}</AlertDescription>
+              </Alert>
+            )}
+
+            {/* Drawing Canvas - Full Width */}
+            <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle>Draw Here</CardTitle>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-gray-600">Wait {pauseDuration}s for analysis</span>
+                <Button variant="outline" size="sm" onClick={clearCanvas} disabled={isProcessing}>
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Clear Canvas
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="relative">
+              <canvas
+                ref={canvasRef}
+                className="border-2 border-gray-300 rounded-lg cursor-crosshair touch-none w-full"
+                style={{ height: "500px", maxWidth: "100%" }}
+                onMouseDown={startDrawing}
+                onMouseMove={draw}
+                onMouseUp={stopDrawing}
+                onMouseLeave={stopDrawing}
+                onTouchStart={handleTouchStart}
+                onTouchMove={handleTouchMove}
+                onTouchEnd={handleTouchEnd}
+              />
+              {isProcessing && (
+                <div className="absolute inset-0 bg-white bg-opacity-75 flex items-center justify-center rounded-lg">
+                  <div className="text-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
+                    <p className="text-sm text-gray-600">Analyzing your drawing...</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Collapsible Text Area */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <CardTitle className="flex items-center gap-2">
+                  Recognized Text
+                  {isSpeaking && (
+                    <div className="flex items-center gap-1 text-blue-600">
+                      <Volume2 className="w-4 h-4 animate-pulse" />
+                      <span className="text-sm">Speaking...</span>
+                    </div>
+                  )}
+                </CardTitle>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setTextAreaExpanded(!textAreaExpanded)}
+                  className="flex items-center gap-1"
+                >
+                  {textAreaExpanded ? (
+                    <>
+                      <ChevronUp className="w-4 h-4" />
+                      Hide
+                    </>
+                  ) : (
+                    <>
+                      <ChevronDown className="w-4 h-4" />
+                      Show
+                    </>
+                  )}
+                </Button>
+              </div>
+              <div className="flex items-center gap-2">
+                {isSpeaking && (
+                  <Button variant="outline" size="sm" onClick={stopSpeaking}>
+                    Stop
+                  </Button>
+                )}
+                {outputText && !isSpeaking && (
+                  <Button variant="outline" size="sm" onClick={() => speakText(outputText)}>
+                    <Volume2 className="w-4 h-4 mr-2" />
+                    Read
+                  </Button>
+                )}
+                <Button variant="outline" size="sm" onClick={clearAll} disabled={isProcessing}>
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Clear All
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {!textAreaExpanded ? (
+              // Collapsed state - show preview
+              <div
+                className="p-4 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200 cursor-pointer hover:bg-gray-100 transition-colors"
+                onClick={() => setTextAreaExpanded(true)}
+              >
+                <div className="flex items-center justify-between">
+                  <p className="text-gray-600 italic">{getPreviewText()}</p>
+                  <ChevronDown className="w-4 h-4 text-gray-400" />
+                </div>
+                {outputText && (
+                  <div className="mt-2 text-xs text-gray-500">
+                    {
+                      outputText
+                        .trim()
+                        .split(/\s+/)
+                        .filter((word) => word.length > 0).length
+                    }{" "}
+                    words • Click to expand
+                  </div>
+                )}
+              </div>
+            ) : (
+              // Expanded state - show full textarea
+              <>
+                <Textarea
+                  value={outputText}
+                  onChange={(e) => setOutputText(e.target.value)}
+                  placeholder="Your recognized text will appear here..."
+                  className="min-h-[200px] text-lg leading-relaxed"
+                  readOnly={isProcessing}
+                />
+                {outputText && (
+                  <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+                    <p className="text-sm text-green-700">
+                      <strong>Word count:</strong>{" "}
+                      {
+                        outputText
+                          .trim()
+                          .split(/\s+/)
+                          .filter((word) => word.length > 0).length
+                      }{" "}
+                      words
+                    </p>
+                  </div>
+                )}
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+            {/* Instructions */}
+            <Card>
+              <CardHeader>
+                <CardTitle>How to Use</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid md:grid-cols-2 gap-4 text-sm text-gray-600">
+                  <div>
+                    <h4 className="font-semibold text-gray-800 mb-2">Getting Started:</h4>
+                    <ol className="list-decimal list-inside space-y-1">
+                      <li>Draw letters, words, or symbols on the large canvas above</li>
+                      <li>
+                        Wait {pauseDuration} second{pauseDuration !== 1 ? "s" : ""} after finishing - the AI will analyze
+                        automatically
+                      </li>
+                      <li>Listen to the recognized text being spoken aloud</li>
+                      <li>Click &quot;Show&quot; below to see the written text if needed</li>
+                    </ol>
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-gray-800 mb-2">Features:</h4>
+                    <ul className="list-disc list-inside space-y-1">
+                      <li>Full-width canvas for comfortable drawing</li>
+                      <li>Audio-first experience with voice feedback</li>
+                      <li>Collapsible text view when needed</li>
+                      <li>Configurable pause duration in Settings</li>
+                    </ul>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+          )}
+        </Tabs>
+      </div>
+    </div>
+  )
+}
