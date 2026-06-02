@@ -117,7 +117,7 @@ const QUICK_RESPONSES = [
   { word: "Again", emoji: "🔄", color: "from-teal-50 to-teal-100 hover:from-teal-100 hover:to-teal-200 border-teal-300 hover:border-teal-500" },
 ]
 
-export function AACBoard() {
+export function AACBoard({ focusMode = false }: { focusMode?: boolean }) {
   // The current sentence being built
   const [sentence, setSentence] = useState<string>("")
   // Path through the tree (e.g., ["Food", "Drink"])
@@ -553,36 +553,38 @@ export function AACBoard() {
         </CardContent>
       </Card>
 
-      {/* Instructions */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">How it works</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ol className="list-decimal list-inside space-y-2 text-sm text-muted-foreground">
-            <li>
-              Use <span className="font-medium text-foreground">Quick Responses</span> (Yes, No,
-              Maybe…) to answer questions instantly with one tap
-            </li>
-            <li>
-              <span className="font-medium text-foreground">Pick a category</span> like Food or
-              Play to start building a message
-            </li>
-            <li>
-              <span className="font-medium text-foreground">Choose what you want</span> (e.g.,
-              Drink, Meal, Snack) — this builds the start of your sentence
-            </li>
-            <li>
-              <span className="font-medium text-foreground">Pick a specific item</span> (e.g.,
-              Water) — your full message is spoken aloud
-            </li>
-            <li>
-              Use <span className="font-medium text-foreground">Smart Suggestions</span> for
-              AI-powered alternatives at any level
-            </li>
-          </ol>
-        </CardContent>
-      </Card>
+      {/* Instructions — hidden in Focus View */}
+      {!focusMode && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">How it works</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ol className="list-decimal list-inside space-y-2 text-sm text-muted-foreground">
+              <li>
+                Use <span className="font-medium text-foreground">Quick Responses</span> (Yes, No,
+                Maybe…) to answer questions instantly with one tap
+              </li>
+              <li>
+                <span className="font-medium text-foreground">Pick a category</span> like Food or
+                Play to start building a message
+              </li>
+              <li>
+                <span className="font-medium text-foreground">Choose what you want</span> (e.g.,
+                Drink, Meal, Snack) — this builds the start of your sentence
+              </li>
+              <li>
+                <span className="font-medium text-foreground">Pick a specific item</span> (e.g.,
+                Water) — your full message is spoken aloud
+              </li>
+              <li>
+                Use <span className="font-medium text-foreground">Smart Suggestions</span> for
+                AI-powered alternatives at any level
+              </li>
+            </ol>
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }

@@ -6,7 +6,7 @@ import { useState, useRef, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
-import { Trash2, Volume2, VolumeX, AlertCircle, Settings, ChevronDown, ChevronUp, Eye, EyeOff, Pencil, MessageSquare } from "lucide-react"
+import { Trash2, Volume2, VolumeX, AlertCircle, Settings, ChevronDown, ChevronUp, Eye, EyeOff, Pencil, MessageSquare, Lock, Unlock } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import {
   Dialog,
@@ -20,6 +20,9 @@ import { Label } from "@/components/ui/label"
 import { Slider } from "@/components/ui/slider"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { AACBoard } from "@/components/aac-board"
+
+const HOLD_DURATION_MS = 3000
+const HOLD_CIRCUMFERENCE = 2 * Math.PI * 23
 
 export default function SmartDrawingEditor() {
   const [drawEnabled, setDrawEnabled] = useState(false)
@@ -37,6 +40,43 @@ export default function SmartDrawingEditor() {
   const [pauseDuration, setPauseDuration] = useState(2) // Default 2 seconds
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [textAreaExpanded, setTextAreaExpanded] = useState(false)
+
+  // Focus View: on by default every load, not persisted
+  const [focusMode, setFocusMode] = useState(true)
+  const [holdProgress, setHoldProgress] = useState(0)
+  const holdIntervalRef = useRef<number | null>(null)
+  const holdStartTimeRef = useRef<number | null>(null)
+
+  const startHold = useCallback(() => {
+    if (holdIntervalRef.current) return // idempotent guard
+    holdStartTimeRef.current = Date.now()
+    holdIntervalRef.current = window.setInterval(() => {
+      const elapsed = Date.now() - (holdStartTimeRef.current ?? Date.now())
+      const pct = Math.min(100, (elapsed / HOLD_DURATION_MS) * 100)
+      setHoldProgress(pct)
+      if (pct >= 100) {
+        window.clearInterval(holdIntervalRef.current!)
+        holdIntervalRef.current = null
+        setFocusMode(false)
+        setHoldProgress(0)
+      }
+    }, 30)
+  }, [])
+
+  const cancelHold = useCallback(() => {
+    if (holdIntervalRef.current) {
+      window.clearInterval(holdIntervalRef.current)
+      holdIntervalRef.current = null
+    }
+    holdStartTimeRef.current = null
+    setHoldProgress(0)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (holdIntervalRef.current) window.clearInterval(holdIntervalRef.current)
+    }
+  }, [])
 
   // Text-to-speech function
   const speakText = useCallback(
@@ -413,6 +453,42 @@ export default function SmartDrawingEditor() {
     return words.slice(-8).join(" ") + "..."
   }
 
+  if (focusMode) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50 p-4">
+        <div className="max-w-6xl mx-auto">
+          <AACBoard focusMode={true} />
+        </div>
+
+        {/* Hold-to-unlock floating button */}
+        <button
+          className="fixed bottom-5 right-5 z-50 w-14 h-14 rounded-full bg-white/90 backdrop-blur border-2 border-gray-200 flex items-center justify-center shadow-lg select-none touch-none cursor-pointer"
+          onMouseDown={startHold}
+          onMouseUp={cancelHold}
+          onMouseLeave={cancelHold}
+          onTouchStart={(e) => { e.preventDefault(); startHold() }}
+          onTouchEnd={cancelHold}
+          onTouchCancel={cancelHold}
+          aria-label="Hold 3 seconds to exit Focus View"
+          title="Hold to unlock"
+        >
+          <svg className="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 56 56" aria-hidden="true">
+            <circle
+              cx="28" cy="28" r="23"
+              fill="none"
+              stroke="#6366f1"
+              strokeWidth="3"
+              strokeDasharray={HOLD_CIRCUMFERENCE}
+              strokeDashoffset={HOLD_CIRCUMFERENCE * (1 - holdProgress / 100)}
+              strokeLinecap="round"
+            />
+          </svg>
+          <Lock className="w-5 h-5 text-gray-500 relative z-10" />
+        </button>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50 p-4">
       <div className="max-w-6xl mx-auto space-y-6">
@@ -431,6 +507,16 @@ export default function SmartDrawingEditor() {
                 {voiceEnabled ? "Voice On" : "Voice Off"}
               </Button>
             )}
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setFocusMode(true)}
+              className="flex items-center gap-2 bg-transparent"
+            >
+              <Lock className="w-4 h-4" />
+              Focus View
+            </Button>
 
             <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
               <DialogTrigger asChild>
