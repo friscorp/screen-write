@@ -24,15 +24,19 @@ const VocabCategorySchema = z.object({
 
 export async function POST(request: NextRequest) {
   try {
-    const { categoryName, categoryEmoji } = await request.json()
+    const { categoryName, categoryEmoji, categoryDescription } = await request.json()
 
     if (!categoryName?.trim()) {
       return NextResponse.json({ error: "categoryName is required" }, { status: 400 })
     }
 
+    const descriptionClause = categoryDescription?.trim()
+      ? `\n\nThe parent/caregiver has provided these hints about the child's preferences for this category:\n"${categoryDescription.trim()}"\nUse these preferences to tailor the vocabulary choices so they feel personal and relevant to this specific child.`
+      : ""
+
     const prompt = `You are creating vocabulary for an AAC (Augmentative and Alternative Communication) app for children ages 4–8 with communication challenges.
 
-Create a structured vocabulary tree for the parent category: "${categoryName}" (${categoryEmoji || ""})
+Create a structured vocabulary tree for the parent category: "${categoryName}" (${categoryEmoji || ""})${descriptionClause}
 
 Requirements:
 - Generate exactly 5 Level 2 sub-categories, each with an appropriate emoji

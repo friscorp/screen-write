@@ -6,16 +6,8 @@ import { useState, useRef, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
-import { Trash2, Volume2, VolumeX, AlertCircle, Settings, ChevronDown, ChevronUp, Eye, EyeOff, Pencil, MessageSquare, Lock, LayoutGrid } from "lucide-react"
+import { Trash2, Volume2, VolumeX, AlertCircle, Settings, ChevronDown, ChevronUp, Eye, EyeOff, Pencil, MessageSquare, Lock, LayoutGrid, ArrowLeft } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Slider } from "@/components/ui/slider"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -45,6 +37,7 @@ export default function SmartDrawingEditor() {
 
   const [vocabTree, setVocabTree] = useState<VocabCategory[]>([])
   const [parentConfigOpen, setParentConfigOpen] = useState(false)
+  const [childName, setChildName] = useState("")
 
   // Focus View: on by default every load, not persisted
   const [focusMode, setFocusMode] = useState(true)
@@ -170,6 +163,9 @@ export default function SmartDrawingEditor() {
       setDrawEnabled(savedDrawEnabled === "true")
     }
 
+    const savedChildName = localStorage.getItem("childName")
+    if (savedChildName) setChildName(savedChildName)
+
     setVocabTree(loadVocabTree())
   }, [])
 
@@ -189,6 +185,10 @@ export default function SmartDrawingEditor() {
   useEffect(() => {
     localStorage.setItem("drawEnabled", drawEnabled.toString())
   }, [drawEnabled])
+
+  useEffect(() => {
+    localStorage.setItem("childName", childName)
+  }, [childName])
 
   // Add resize handler
   useEffect(() => {
@@ -465,6 +465,13 @@ export default function SmartDrawingEditor() {
     saveVocabTree(newTree)
   }
 
+  const getGreeting = () => {
+    const hour = new Date().getHours()
+    if (hour < 12) return "Good morning"
+    if (hour < 17) return "Good afternoon"
+    return "Good evening"
+  }
+
   if (focusMode) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50 p-4">
@@ -506,7 +513,14 @@ export default function SmartDrawingEditor() {
       <div className="max-w-6xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
-          <h1 className="text-3xl font-bold text-gray-800">Smart Communication Tool</h1>
+          <div>
+            <h1 className="text-3xl font-bold text-gray-800">Smart Communication Tool</h1>
+            {childName.trim() && (
+              <p className="text-lg text-gray-500 mt-0.5">
+                {getGreeting()}, <span className="font-semibold text-indigo-600">{childName.trim()}</span>!
+              </p>
+            )}
+          </div>
           <div className="flex items-center gap-2">
             {activeTab === "draw" && drawEnabled && (
               <Button
@@ -530,126 +544,15 @@ export default function SmartDrawingEditor() {
               Focus View
             </Button>
 
-            <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
-              <DialogTrigger asChild>
-                <Button variant="outline" size="sm" className="flex items-center gap-2 bg-transparent">
-                  <Settings className="w-4 h-4" />
-                  Settings
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="sm:max-w-[425px]">
-                <DialogHeader>
-                  <DialogTitle>Settings</DialogTitle>
-                  <DialogDescription>Configure how the Smart Communication Tool works for you.</DialogDescription>
-                </DialogHeader>
-                <div className="grid gap-6 py-4">
-                  <div className="space-y-4">
-                    {/* Draw Tab Toggle */}
-                    <div className="pb-4 border-b">
-                      <Label className="text-base font-medium">Tabs</Label>
-                      <div className="flex items-center justify-between mt-2">
-                        <span className="text-sm">Enable Draw tab</span>
-                        <Button
-                          variant={drawEnabled ? "default" : "outline"}
-                          size="sm"
-                          onClick={() => {
-                            setDrawEnabled(!drawEnabled)
-                            // If disabling and currently on draw tab, switch to communicate
-                            if (drawEnabled && activeTab === "draw") {
-                              setActiveTab("communicate")
-                            }
-                          }}
-                          className="flex items-center gap-2"
-                        >
-                          {drawEnabled ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-                          {drawEnabled ? "Enabled" : "Disabled"}
-                        </Button>
-                      </div>
-                      <p className="text-xs text-gray-600 mt-1">Show the drawing recognition tab</p>
-                    </div>
-
-                    <div>
-                      <Label htmlFor="pause-duration" className="text-base font-medium">
-                        Pause Duration: {pauseDuration} second{pauseDuration !== 1 ? "s" : ""}
-                      </Label>
-                      <p className="text-sm text-gray-600 mb-3">
-                        How long to wait after you stop drawing before analyzing the image
-                      </p>
-                      <Slider
-                        id="pause-duration"
-                        min={1}
-                        max={10}
-                        step={1}
-                        value={[pauseDuration]}
-                        onValueChange={(value) => setPauseDuration(value[0])}
-                        className="w-full"
-                      />
-                      <div className="flex justify-between text-xs text-gray-500 mt-1">
-                        <span>1s (Fast)</span>
-                        <span>5s (Medium)</span>
-                        <span>10s (Slow)</span>
-                      </div>
-                    </div>
-
-                    <div className="pt-4 border-t">
-                      <Label className="text-base font-medium">Voice Settings</Label>
-                      <div className="flex items-center justify-between mt-2">
-                        <span className="text-sm">Enable voice output</span>
-                        <Button
-                          variant={voiceEnabled ? "default" : "outline"}
-                          size="sm"
-                          onClick={() => setVoiceEnabled(!voiceEnabled)}
-                          className="flex items-center gap-2"
-                        >
-                          {voiceEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
-                          {voiceEnabled ? "On" : "Off"}
-                        </Button>
-                      </div>
-                      <p className="text-xs text-gray-600 mt-1">Automatically read recognized text aloud</p>
-                    </div>
-
-                    <div className="pt-4 border-t">
-                      <Label className="text-base font-medium">Display Settings</Label>
-                      <div className="flex items-center justify-between mt-2">
-                        <span className="text-sm">Show text area by default</span>
-                        <Button
-                          variant={textAreaExpanded ? "default" : "outline"}
-                          size="sm"
-                          onClick={() => setTextAreaExpanded(!textAreaExpanded)}
-                          className="flex items-center gap-2"
-                        >
-                          {textAreaExpanded ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-                          {textAreaExpanded ? "Shown" : "Hidden"}
-                        </Button>
-                      </div>
-                      <p className="text-xs text-gray-600 mt-1">Whether to show the text area expanded by default</p>
-                    </div>
-
-                    <div className="pt-4 border-t">
-                      <Label className="text-base font-medium">Communication Board</Label>
-                      <p className="text-xs text-gray-600 mt-1 mb-3">
-                        Add or remove Level 1 categories. Vocabulary below Level 1 is auto-generated by AI.
-                      </p>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setSettingsOpen(false)
-                          setParentConfigOpen(true)
-                        }}
-                        className="flex items-center gap-2"
-                      >
-                        <LayoutGrid className="w-4 h-4" />
-                        Manage Categories
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-                <div className="flex justify-end">
-                  <Button onClick={() => setSettingsOpen(false)}>Done</Button>
-                </div>
-              </DialogContent>
-            </Dialog>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setSettingsOpen(true)}
+              className="flex items-center gap-2 bg-transparent"
+            >
+              <Settings className="w-4 h-4" />
+              Settings
+            </Button>
           </div>
         </div>
 
@@ -864,13 +767,157 @@ export default function SmartDrawingEditor() {
         </Tabs>
       </div>
 
-      {/* Parent configuration dialog — accessible from Settings */}
+      {/* Parent configuration full page */}
       <ParentConfig
         tree={vocabTree}
         onSave={handleVocabSave}
         open={parentConfigOpen}
         onOpenChange={setParentConfigOpen}
       />
+
+      {/* Settings full page */}
+      {settingsOpen && (
+        <div className="fixed inset-0 z-50 bg-gradient-to-br from-blue-50 to-purple-50 overflow-y-auto">
+          <div className="max-w-2xl mx-auto px-4 py-8 space-y-6">
+            {/* Header */}
+            <div className="flex items-center gap-4">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setSettingsOpen(false)}
+                className="flex items-center gap-2 bg-white"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                Back
+              </Button>
+              <div>
+                <h1 className="text-2xl font-bold text-gray-800">Settings</h1>
+                <p className="text-sm text-gray-500 mt-0.5">Configure the Smart Communication Tool</p>
+              </div>
+            </div>
+
+            {/* Child name */}
+            <div className="bg-white rounded-xl border shadow-sm p-5 space-y-3">
+              <Label className="text-base font-semibold">Child&apos;s Name</Label>
+              <p className="text-xs text-gray-500">Used to personalise the greeting on the home page.</p>
+              <input
+                type="text"
+                value={childName}
+                onChange={(e) => setChildName(e.target.value)}
+                placeholder="e.g. Aarav"
+                className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+            </div>
+
+            {/* Tabs section */}
+            <div className="bg-white rounded-xl border shadow-sm p-5 space-y-4">
+              <Label className="text-base font-semibold">Tabs</Label>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium">Enable Draw tab</p>
+                  <p className="text-xs text-gray-500">Show the drawing recognition tab</p>
+                </div>
+                <Button
+                  variant={drawEnabled ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => {
+                    setDrawEnabled(!drawEnabled)
+                    if (drawEnabled && activeTab === "draw") setActiveTab("communicate")
+                  }}
+                  className="flex items-center gap-2"
+                >
+                  {drawEnabled ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                  {drawEnabled ? "Enabled" : "Disabled"}
+                </Button>
+              </div>
+            </div>
+
+            {/* Pause duration */}
+            <div className="bg-white rounded-xl border shadow-sm p-5 space-y-3">
+              <Label htmlFor="pause-duration" className="text-base font-semibold">
+                Pause Duration: {pauseDuration} second{pauseDuration !== 1 ? "s" : ""}
+              </Label>
+              <p className="text-sm text-gray-500">
+                How long to wait after you stop drawing before analyzing the image
+              </p>
+              <Slider
+                id="pause-duration"
+                min={1}
+                max={10}
+                step={1}
+                value={[pauseDuration]}
+                onValueChange={(value) => setPauseDuration(value[0])}
+                className="w-full"
+              />
+              <div className="flex justify-between text-xs text-gray-400">
+                <span>1s (Fast)</span>
+                <span>5s (Medium)</span>
+                <span>10s (Slow)</span>
+              </div>
+            </div>
+
+            {/* Voice */}
+            <div className="bg-white rounded-xl border shadow-sm p-5 space-y-4">
+              <Label className="text-base font-semibold">Voice Settings</Label>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium">Enable voice output</p>
+                  <p className="text-xs text-gray-500">Automatically read recognised text aloud</p>
+                </div>
+                <Button
+                  variant={voiceEnabled ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setVoiceEnabled(!voiceEnabled)}
+                  className="flex items-center gap-2"
+                >
+                  {voiceEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+                  {voiceEnabled ? "On" : "Off"}
+                </Button>
+              </div>
+            </div>
+
+            {/* Display */}
+            <div className="bg-white rounded-xl border shadow-sm p-5 space-y-4">
+              <Label className="text-base font-semibold">Display Settings</Label>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium">Show text area by default</p>
+                  <p className="text-xs text-gray-500">Whether to show the text area expanded by default</p>
+                </div>
+                <Button
+                  variant={textAreaExpanded ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setTextAreaExpanded(!textAreaExpanded)}
+                  className="flex items-center gap-2"
+                >
+                  {textAreaExpanded ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                  {textAreaExpanded ? "Shown" : "Hidden"}
+                </Button>
+              </div>
+            </div>
+
+            {/* Communication board */}
+            <div className="bg-white rounded-xl border shadow-sm p-5 space-y-3">
+              <Label className="text-base font-semibold">Communication Board</Label>
+              <p className="text-xs text-gray-500">
+                Add or remove Level 1 categories. Vocabulary below Level 1 is auto-generated by AI.
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setSettingsOpen(false)
+                  setParentConfigOpen(true)
+                }}
+                className="flex items-center gap-2"
+              >
+                <LayoutGrid className="w-4 h-4" />
+                Manage Categories
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

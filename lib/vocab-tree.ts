@@ -14,6 +14,7 @@ export interface VocabCategory {
   id: string
   word: string
   emoji: string
+  description?: string
   children: VocabBranch[]
 }
 
