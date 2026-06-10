@@ -1,11 +1,15 @@
 import { type NextRequest, NextResponse } from "next/server"
 import OpenAI from "openai"
+import { getUserIdFromRequest } from "@/lib/auth"
 
 // Get the OpenAI model from environment variable, default to gpt-4o
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "openai/gpt-4o"
 const openaiModel = OPENAI_MODEL.replace(/^openai\//, "")
 
 export async function POST(request: NextRequest) {
+  if (!getUserIdFromRequest(request)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
   try {
     const { image, previousText } = await request.json()
 

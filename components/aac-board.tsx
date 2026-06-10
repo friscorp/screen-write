@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Trash2, Volume2, ChevronLeft, Home, Loader2, Sparkles } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import type { VocabCategory, VocabBranch, VocabLeaf } from "@/lib/vocab-tree"
+import { logEvent } from "@/lib/usage-logger"
 
 type PathItem = VocabCategory | VocabBranch
 type DisplayItem = VocabCategory | VocabBranch | VocabLeaf
@@ -157,8 +158,11 @@ export function AACBoard({
 
   const handleNodeSelect = useCallback(
     (node: DisplayItem) => {
+      const pathWords = path.map((p) => p.word)
       if (isLeaf(node)) {
         // Leaf: speak the full pre-generated sentence
+        logEvent("category_select", { word: node.word, emoji: node.emoji, level: path.length, leaf: true, path: pathWords })
+        logEvent("sentence", { text: node.sentence, source: "leaf", path: pathWords })
         setSentence(node.sentence)
         speakText(node.sentence)
         setPath([])
@@ -166,12 +170,16 @@ export function AACBoard({
         setShowPredictions(false)
       } else if (path.length === 0) {
         // Level 0 → 1: selected a VocabCategory
+        logEvent("category_select", { word: node.word, emoji: node.emoji, level: 0, path: pathWords })
+        logEvent("navigation", { action: "enter", path: [node.word] })
         setPath([node as VocabCategory])
         setShowPredictions(false)
         setPredictions([])
         speakText(node.word)
       } else {
         // Level 1 → 2: selected a VocabBranch
+        logEvent("category_select", { word: node.word, emoji: node.emoji, level: path.length, path: pathWords })
+        logEvent("navigation", { action: "enter", path: [...pathWords, node.word] })
         setPath((prev) => [...prev, node as VocabBranch])
         setShowPredictions(false)
         setPredictions([])
@@ -186,6 +194,7 @@ export function AACBoard({
       const newSentence = sentence.trim()
         ? `${sentence.trim()} ${item.word.toLowerCase()}`
         : item.word
+      logEvent("sentence", { text: newSentence, source: "prediction", word: item.word })
       setSentence(newSentence)
       speakText(newSentence)
       setPath([])
@@ -197,6 +206,7 @@ export function AACBoard({
 
   const goBack = useCallback(() => {
     const newPath = path.slice(0, -1)
+    logEvent("navigation", { action: "back", path: newPath.map((p) => p.word) })
     setPath(newPath)
     setPredictions([])
     setShowPredictions(false)
@@ -204,6 +214,7 @@ export function AACBoard({
   }, [path])
 
   const goHome = useCallback(() => {
+    logEvent("navigation", { action: "home", path: [] })
     setPath([])
     setPredictions([])
     setShowPredictions(false)
@@ -226,6 +237,7 @@ export function AACBoard({
 
   const handleQuickResponse = useCallback(
     (response: { word: string; emoji: string }) => {
+      logEvent("sentence", { text: response.word, source: "quick_response" })
       setSentence(response.word)
       setPath([])
       setPredictions([])

@@ -1,7 +1,11 @@
 import { type NextRequest, NextResponse } from "next/server"
 import OpenAI from "openai"
+import { getUserIdFromRequest } from "@/lib/auth"
 
 export async function POST(request: NextRequest) {
+  if (!getUserIdFromRequest(request)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
   try {
     const { text } = await request.json()
 
