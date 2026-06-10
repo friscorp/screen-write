@@ -22,7 +22,9 @@ Licensing & analytics require MongoDB and a cookie secret:
 - `MONGODB_DB` — database name (default `aac`)
 - `LICENSE_COOKIE_SECRET` — HMAC secret used to sign the auth cookie
 
-Authorized users are seeded manually — there is no self-registration. Run `node scripts/seed-licenses.mjs` (edit the `LICENSES` array first) or insert directly into the `licenses` collection.
+Authorized users are seeded manually — there is no self-registration. Run `node scripts/seed-licenses.mjs` (edit the `LICENSES` array first) or insert directly into the `licenses` collection. The seed script loads env via `@next/env` (same as the app), so run it plain — do **not** pass `--env-file`.
+
+Note: `@next/env` runs dotenv variable-expansion, so any literal `$` in env values (e.g. a MongoDB password) must be escaped as `\$` in `.env`, otherwise it's silently mangled and auth fails.
 
 ## Architecture
 
