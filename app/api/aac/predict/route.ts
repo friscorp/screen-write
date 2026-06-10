@@ -1,6 +1,7 @@
 import { generateText, Output } from "ai"
 import { type NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
+import { getUserIdFromRequest } from "@/lib/auth"
 
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "openai/gpt-4o"
 
@@ -15,6 +16,9 @@ const PredictionSchema = z.object({
 })
 
 export async function POST(request: NextRequest) {
+  if (!getUserIdFromRequest(request)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
   try {
     const { sentence, category } = await request.json()
 
