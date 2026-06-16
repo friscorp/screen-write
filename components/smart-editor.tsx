@@ -17,8 +17,14 @@ import { loadVocabTree, saveVocabTree, type VocabCategory } from "@/lib/vocab-tr
 
 const HOLD_DURATION_MS = 3000
 const HOLD_CIRCUMFERENCE = 2 * Math.PI * 23
+const DEFAULT_DOCUMENT_TITLE = "speaker"
+const CHILD_NAME_MAX_LENGTH = 80
 
-export function SmartDrawingEditor() {
+interface SmartDrawingEditorProps {
+  initialChildName?: string
+}
+
+export function SmartDrawingEditor({ initialChildName = "" }: SmartDrawingEditorProps) {
   const [drawEnabled, setDrawEnabled] = useState(false)
   const [activeTab, setActiveTab] = useState("communicate")
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -37,7 +43,11 @@ export function SmartDrawingEditor() {
 
   const [vocabTree, setVocabTree] = useState<VocabCategory[]>([])
   const [parentConfigOpen, setParentConfigOpen] = useState(false)
-  const [childName, setChildName] = useState("")
+  const [savedChildName, setSavedChildName] = useState(initialChildName.trim())
+  const [childNameDraft, setChildNameDraft] = useState(initialChildName.trim())
+  const [isSavingSettings, setIsSavingSettings] = useState(false)
+  const [settingsSaveMessage, setSettingsSaveMessage] = useState("")
+  const [settingsSaveError, setSettingsSaveError] = useState("")
 
   // Focus View: on by default every load, not persisted
   const [focusMode, setFocusMode] = useState(true)
@@ -163,9 +173,6 @@ export function SmartDrawingEditor() {
       setDrawEnabled(savedDrawEnabled === "true")
     }
 
-    const savedChildName = localStorage.getItem("childName")
-    if (savedChildName) setChildName(savedChildName)
-
     setVocabTree(loadVocabTree())
   }, [])
 
@@ -187,8 +194,41 @@ export function SmartDrawingEditor() {
   }, [drawEnabled])
 
   useEffect(() => {
-    localStorage.setItem("childName", childName)
-  }, [childName])
+    document.title = savedChildName || DEFAULT_DOCUMENT_TITLE
+  }, [savedChildName])
+
+  const hasUnsavedChildName = childNameDraft.trim() !== savedChildName
+
+  const handleSaveChildName = useCallback(async () => {
+    const childName = childNameDraft.trim()
+
+    setIsSavingSettings(true)
+    setSettingsSaveMessage("")
+    setSettingsSaveError("")
+
+    try {
+      const response = await fetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ childName }),
+      })
+      const data = await response.json().catch(() => ({}))
+
+      if (!response.ok) {
+        throw new Error(typeof data?.error === "string" ? data.error : "Could not save settings")
+      }
+
+      const savedName = typeof data?.settings?.childName === "string" ? data.settings.childName : childName
+      setSavedChildName(savedName)
+      setChildNameDraft(savedName)
+      localStorage.removeItem("childName")
+      setSettingsSaveMessage("Saved")
+    } catch (error) {
+      setSettingsSaveError(error instanceof Error ? error.message : "Could not save settings")
+    } finally {
+      setIsSavingSettings(false)
+    }
+  }, [childNameDraft])
 
   // Add resize handler
   useEffect(() => {
@@ -515,9 +555,9 @@ export function SmartDrawingEditor() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-gray-800">Smart Communication Tool</h1>
-            {childName.trim() && (
+            {savedChildName && (
               <p className="text-lg text-gray-500 mt-0.5">
-                {getGreeting()}, <span className="font-semibold text-indigo-600">{childName.trim()}</span>!
+                {getGreeting()}, <span className="font-semibold text-indigo-600">{savedChildName}</span>!
               </p>
             )}
           </div>
@@ -802,11 +842,41 @@ export function SmartDrawingEditor() {
               <p className="text-xs text-gray-500">Used to personalise the greeting on the home page.</p>
               <input
                 type="text"
-                value={childName}
-                onChange={(e) => setChildName(e.target.value)}
+                value={childNameDraft}
+                onChange={(e) => {
+                  setChildNameDraft(e.target.value)
+                  setSettingsSaveMessage("")
+                  setSettingsSaveError("")
+                }}
+                maxLength={CHILD_NAME_MAX_LENGTH}
                 placeholder="e.g. Aarav"
                 className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               />
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={handleSaveChildName}
+                  disabled={isSavingSettings || !hasUnsavedChildName}
+                >
+                  {isSavingSettings ? "Saving..." : "Save"}
+                </Button>
+                {hasUnsavedChildName && !isSavingSettings && (
+                  <p className="text-xs text-amber-700" aria-live="polite">
+                    Unsaved changes
+                  </p>
+                )}
+                {settingsSaveMessage && (
+                  <p className="text-xs text-emerald-700" aria-live="polite">
+                    {settingsSaveMessage}
+                  </p>
+                )}
+                {settingsSaveError && (
+                  <p className="text-xs text-red-600" aria-live="polite">
+                    {settingsSaveError}
+                  </p>
+                )}
+              </div>
             </div>
 
             {/* Tabs section */}

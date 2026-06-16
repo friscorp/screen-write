@@ -29,3 +29,5 @@ next-env.d.ts
 #int
 *.md
 /docs
+# macOS
+.DS_Store

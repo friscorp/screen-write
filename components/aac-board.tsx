@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Trash2, Volume2, ChevronLeft, Home, Loader2, Sparkles } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import type { VocabCategory, VocabBranch, VocabLeaf } from "@/lib/vocab-tree"
-import { logEvent } from "@/lib/usage-logger"
+import { logEvent, flush } from "@/lib/usage-logger"
 
 type PathItem = VocabCategory | VocabBranch
 type DisplayItem = VocabCategory | VocabBranch | VocabLeaf
@@ -18,6 +18,24 @@ function isLeaf(node: DisplayItem): node is VocabLeaf {
 // All Level 3 leaves under a top-level category, flattened across sub-categories.
 function collectLeaves(category: VocabCategory): VocabLeaf[] {
   return category.children.flatMap((branch) => branch.children)
+}
+
+// Map a list of words (from usage counts or AI hints) back to the real leaves,
+// preserving order and dropping anything that isn't an actual leaf or repeats.
+function mapWordsToLeaves(words: unknown, leaves: VocabLeaf[]): VocabLeaf[] {
+  if (!Array.isArray(words)) return []
+  const byWord = new Map(leaves.map((l) => [l.word.toLowerCase(), l]))
+  const out: VocabLeaf[] = []
+  const seen = new Set<string>()
+  for (const w of words) {
+    const key = String(w).toLowerCase()
+    const leaf = byWord.get(key)
+    if (leaf && !seen.has(key)) {
+      seen.add(key)
+      out.push(leaf)
+    }
+  }
+  return out
 }
 
 // Deterministic fallback used when AI selection is unavailable: one item from
@@ -96,8 +114,9 @@ export function AACBoard({
   const [isSpeaking, setIsSpeaking] = useState(false)
   const [error, setError] = useState("")
   const audioRef = useRef<HTMLAudioElement | null>(null)
-  // Cache of derived "Frequently Requested" leaves, keyed by category id.
-  const frequentCacheRef = useRef<Record<string, VocabLeaf[]>>({})
+  // Cache of the AI/hints-derived leaves per category id. Usage counts are not
+  // cached — they're refetched on each entry so the row reacts to recent taps.
+  const hintsCacheRef = useRef<Record<string, VocabLeaf[]>>({})
 
   useEffect(() => {
     return () => {
@@ -111,11 +130,14 @@ export function AACBoard({
   // Reset path if vocabTree changes underneath us (e.g. parent config saved)
   useEffect(() => {
     setPath([])
-    frequentCacheRef.current = {}
+    hintsCacheRef.current = {}
     setFrequentItems([])
   }, [vocabTree])
 
-  // Derive the "Frequently Requested" row whenever we enter a top-level category.
+  // Build the "Frequently Requested" row whenever we enter a top-level category.
+  // The row blends the child's real usage (most-selected leaves first) with the
+  // AI/hints-derived picks, then a deterministic fallback fills any remaining
+  // slots — so it adapts to actual use but still looks sensible on day one.
   useEffect(() => {
     if (path.length !== 1) {
       setFrequentItems([])
@@ -128,17 +150,13 @@ export function AACBoard({
       return
     }
 
-    const cached = frequentCacheRef.current[category.id]
-    if (cached) {
-      setFrequentItems(cached)
-      return
-    }
-
     let cancelled = false
-    const load = async () => {
-      setLoadingFrequent(true)
-      const fallback = defaultFrequent(category)
-      let items = fallback
+
+    // AI/hints picks are stable per category, so cache them to avoid repeat cost.
+    const getHintLeaves = async (): Promise<VocabLeaf[]> => {
+      const cached = hintsCacheRef.current[category.id]
+      if (cached) return cached
+      let result = defaultFrequent(category)
       try {
         const res = await fetch("/api/aac/frequent", {
           method: "POST",
@@ -151,21 +169,49 @@ export function AACBoard({
           }),
         })
         if (res.ok) {
-          const data = await res.json()
-          if (Array.isArray(data.words) && data.words.length > 0) {
-            const byWord = new Map(leaves.map((l) => [l.word.toLowerCase(), l]))
-            const mapped = data.words
-              .map((w: string) => byWord.get(String(w).toLowerCase()))
-              .filter((l: VocabLeaf | undefined): l is VocabLeaf => Boolean(l))
-            if (mapped.length > 0) items = mapped
-          }
+          const mapped = mapWordsToLeaves((await res.json()).words, leaves)
+          if (mapped.length > 0) result = mapped
         }
       } catch {
         // keep deterministic fallback
       }
+      hintsCacheRef.current[category.id] = result
+      return result
+    }
+
+    // Usage counts change over time, so always refetch (cheap DB aggregation).
+    const getUsageLeaves = async (): Promise<VocabLeaf[]> => {
+      try {
+        const res = await fetch("/api/aac/usage-frequent", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ category: category.word }),
+        })
+        if (res.ok) return mapWordsToLeaves((await res.json()).words, leaves)
+      } catch {
+        // ignore — usage is best-effort
+      }
+      return []
+    }
+
+    const load = async () => {
+      setLoadingFrequent(true)
+      // Push any buffered selections first so very recent taps are counted.
+      flush()
+      const [usageLeaves, hintLeaves] = await Promise.all([getUsageLeaves(), getHintLeaves()])
+
+      const blended: VocabLeaf[] = []
+      const seen = new Set<string>()
+      for (const leaf of [...usageLeaves, ...hintLeaves, ...defaultFrequent(category)]) {
+        const key = leaf.word.toLowerCase()
+        if (seen.has(key)) continue
+        seen.add(key)
+        blended.push(leaf)
+        if (blended.length >= 6) break
+      }
+
       if (!cancelled) {
-        frequentCacheRef.current[category.id] = items
-        setFrequentItems(items)
+        setFrequentItems(blended)
         setLoadingFrequent(false)
       }
     }
