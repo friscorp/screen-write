@@ -147,7 +147,7 @@ export const DEFAULT_VOCAB_TREE: VocabCategory[] = [
   },
   {
     id: "emotions",
-    word: "Emotions",
+    word: "Feelings",
     emoji: "😊",
     children: [
       {
