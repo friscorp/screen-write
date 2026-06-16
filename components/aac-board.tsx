@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Trash2, Volume2, ChevronLeft, Home, Loader2, Sparkles } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import type { VocabCategory, VocabBranch, VocabLeaf } from "@/lib/vocab-tree"
-import { logEvent } from "@/lib/usage-logger"
+import { logEvent, flush } from "@/lib/usage-logger"
 
 type PathItem = VocabCategory | VocabBranch
 type DisplayItem = VocabCategory | VocabBranch | VocabLeaf
@@ -15,9 +15,42 @@ function isLeaf(node: DisplayItem): node is VocabLeaf {
   return "sentence" in node
 }
 
-interface PredictedItem {
-  word: string
-  emoji: string
+// All Level 3 leaves under a top-level category, flattened across sub-categories.
+function collectLeaves(category: VocabCategory): VocabLeaf[] {
+  return category.children.flatMap((branch) => branch.children)
+}
+
+// Map a list of words (from usage counts or AI hints) back to the real leaves,
+// preserving order and dropping anything that isn't an actual leaf or repeats.
+function mapWordsToLeaves(words: unknown, leaves: VocabLeaf[]): VocabLeaf[] {
+  if (!Array.isArray(words)) return []
+  const byWord = new Map(leaves.map((l) => [l.word.toLowerCase(), l]))
+  const out: VocabLeaf[] = []
+  const seen = new Set<string>()
+  for (const w of words) {
+    const key = String(w).toLowerCase()
+    const leaf = byWord.get(key)
+    if (leaf && !seen.has(key)) {
+      seen.add(key)
+      out.push(leaf)
+    }
+  }
+  return out
+}
+
+// Deterministic fallback used when AI selection is unavailable: one item from
+// each sub-category first (for variety), then fill from the remaining leaves.
+function defaultFrequent(category: VocabCategory, limit = 6): VocabLeaf[] {
+  const result: VocabLeaf[] = []
+  for (const branch of category.children) {
+    if (branch.children[0] && !result.includes(branch.children[0])) result.push(branch.children[0])
+    if (result.length >= limit) return result.slice(0, limit)
+  }
+  for (const leaf of collectLeaves(category)) {
+    if (result.length >= limit) break
+    if (!result.includes(leaf)) result.push(leaf)
+  }
+  return result.slice(0, limit)
 }
 
 const QUICK_RESPONSES = [
@@ -76,12 +109,14 @@ export function AACBoard({
 }) {
   const [sentence, setSentence] = useState<string>("")
   const [path, setPath] = useState<PathItem[]>([])
-  const [predictions, setPredictions] = useState<PredictedItem[]>([])
-  const [isLoadingPredictions, setIsLoadingPredictions] = useState(false)
-  const [showPredictions, setShowPredictions] = useState(false)
+  const [frequentItems, setFrequentItems] = useState<VocabLeaf[]>([])
+  const [loadingFrequent, setLoadingFrequent] = useState(false)
   const [isSpeaking, setIsSpeaking] = useState(false)
   const [error, setError] = useState("")
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  // Cache of the AI/hints-derived leaves per category id. Usage counts are not
+  // cached — they're refetched on each entry so the row reacts to recent taps.
+  const hintsCacheRef = useRef<Record<string, VocabLeaf[]>>({})
 
   useEffect(() => {
     return () => {
@@ -95,9 +130,96 @@ export function AACBoard({
   // Reset path if vocabTree changes underneath us (e.g. parent config saved)
   useEffect(() => {
     setPath([])
-    setPredictions([])
-    setShowPredictions(false)
+    hintsCacheRef.current = {}
+    setFrequentItems([])
   }, [vocabTree])
+
+  // Build the "Frequently Requested" row whenever we enter a top-level category.
+  // The row blends the child's real usage (most-selected leaves first) with the
+  // AI/hints-derived picks, then a deterministic fallback fills any remaining
+  // slots — so it adapts to actual use but still looks sensible on day one.
+  useEffect(() => {
+    if (path.length !== 1) {
+      setFrequentItems([])
+      return
+    }
+    const category = path[0] as VocabCategory
+    const leaves = collectLeaves(category)
+    if (leaves.length === 0) {
+      setFrequentItems([])
+      return
+    }
+
+    let cancelled = false
+
+    // AI/hints picks are stable per category, so cache them to avoid repeat cost.
+    const getHintLeaves = async (): Promise<VocabLeaf[]> => {
+      const cached = hintsCacheRef.current[category.id]
+      if (cached) return cached
+      let result = defaultFrequent(category)
+      try {
+        const res = await fetch("/api/aac/frequent", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            category: category.word,
+            description: category.description,
+            items: leaves.map((l) => ({ word: l.word, emoji: l.emoji })),
+            limit: 6,
+          }),
+        })
+        if (res.ok) {
+          const mapped = mapWordsToLeaves((await res.json()).words, leaves)
+          if (mapped.length > 0) result = mapped
+        }
+      } catch {
+        // keep deterministic fallback
+      }
+      hintsCacheRef.current[category.id] = result
+      return result
+    }
+
+    // Usage counts change over time, so always refetch (cheap DB aggregation).
+    const getUsageLeaves = async (): Promise<VocabLeaf[]> => {
+      try {
+        const res = await fetch("/api/aac/usage-frequent", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ category: category.word }),
+        })
+        if (res.ok) return mapWordsToLeaves((await res.json()).words, leaves)
+      } catch {
+        // ignore — usage is best-effort
+      }
+      return []
+    }
+
+    const load = async () => {
+      setLoadingFrequent(true)
+      // Push any buffered selections first so very recent taps are counted.
+      flush()
+      const [usageLeaves, hintLeaves] = await Promise.all([getUsageLeaves(), getHintLeaves()])
+
+      const blended: VocabLeaf[] = []
+      const seen = new Set<string>()
+      for (const leaf of [...usageLeaves, ...hintLeaves, ...defaultFrequent(category)]) {
+        const key = leaf.word.toLowerCase()
+        if (seen.has(key)) continue
+        seen.add(key)
+        blended.push(leaf)
+        if (blended.length >= 6) break
+      }
+
+      if (!cancelled) {
+        setFrequentItems(blended)
+        setLoadingFrequent(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [path])
 
   const getCurrentOptions = (): DisplayItem[] => {
     if (path.length === 0) return vocabTree
@@ -135,27 +257,6 @@ export function AACBoard({
     window.speechSynthesis.speak(utterance)
   }, [])
 
-  const fetchPredictions = useCallback(async (currentSentence: string, category: string | null) => {
-    setIsLoadingPredictions(true)
-    setError("")
-    try {
-      const response = await fetch("/api/aac/predict", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sentence: currentSentence, category }),
-      })
-      if (!response.ok) throw new Error("Failed to get predictions")
-      const data = await response.json()
-      if (data.predictions && Array.isArray(data.predictions)) {
-        setPredictions(data.predictions.slice(0, 4))
-      }
-    } catch {
-      setError("Could not load smart suggestions.")
-    } finally {
-      setIsLoadingPredictions(false)
-    }
-  }, [])
-
   const handleNodeSelect = useCallback(
     (node: DisplayItem) => {
       const pathWords = path.map((p) => p.word)
@@ -166,58 +267,33 @@ export function AACBoard({
         setSentence(node.sentence)
         speakText(node.sentence)
         setPath([])
-        setPredictions([])
-        setShowPredictions(false)
       } else if (path.length === 0) {
         // Level 0 → 1: selected a VocabCategory
         logEvent("category_select", { word: node.word, emoji: node.emoji, level: 0, path: pathWords })
         logEvent("navigation", { action: "enter", path: [node.word] })
         setPath([node as VocabCategory])
-        setShowPredictions(false)
-        setPredictions([])
         speakText(node.word)
       } else {
         // Level 1 → 2: selected a VocabBranch
         logEvent("category_select", { word: node.word, emoji: node.emoji, level: path.length, path: pathWords })
         logEvent("navigation", { action: "enter", path: [...pathWords, node.word] })
         setPath((prev) => [...prev, node as VocabBranch])
-        setShowPredictions(false)
-        setPredictions([])
         speakText(node.word)
       }
     },
     [path, speakText],
   )
 
-  const handlePredictionSelect = useCallback(
-    (item: PredictedItem) => {
-      const newSentence = sentence.trim()
-        ? `${sentence.trim()} ${item.word.toLowerCase()}`
-        : item.word
-      logEvent("sentence", { text: newSentence, source: "prediction", word: item.word })
-      setSentence(newSentence)
-      speakText(newSentence)
-      setPath([])
-      setPredictions([])
-      setShowPredictions(false)
-    },
-    [sentence, speakText],
-  )
-
   const goBack = useCallback(() => {
     const newPath = path.slice(0, -1)
     logEvent("navigation", { action: "back", path: newPath.map((p) => p.word) })
     setPath(newPath)
-    setPredictions([])
-    setShowPredictions(false)
     if (newPath.length === 0) setSentence("")
   }, [path])
 
   const goHome = useCallback(() => {
     logEvent("navigation", { action: "home", path: [] })
     setPath([])
-    setPredictions([])
-    setShowPredictions(false)
     setSentence("")
   }, [])
 
@@ -229,8 +305,6 @@ export function AACBoard({
     window.speechSynthesis.cancel()
     setSentence("")
     setPath([])
-    setPredictions([])
-    setShowPredictions(false)
     setError("")
     setIsSpeaking(false)
   }, [])
@@ -240,8 +314,6 @@ export function AACBoard({
       logEvent("sentence", { text: response.word, source: "quick_response" })
       setSentence(response.word)
       setPath([])
-      setPredictions([])
-      setShowPredictions(false)
       speakText(response.word)
     },
     [speakText],
@@ -250,14 +322,6 @@ export function AACBoard({
   const replaySentence = useCallback(() => {
     if (sentence) speakText(sentence)
   }, [sentence, speakText])
-
-  const toggleSmartSuggestions = useCallback(() => {
-    if (!showPredictions) {
-      const currentCategory = path.length > 0 ? path[0].word : null
-      fetchPredictions(sentence, currentCategory)
-    }
-    setShowPredictions(!showPredictions)
-  }, [showPredictions, sentence, path, fetchPredictions])
 
   const currentOptions = getCurrentOptions()
   const atLeafLevel = path.length === 2
@@ -352,21 +416,6 @@ export function AACBoard({
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <CardTitle>{currentLevelTitle}</CardTitle>
-            <div className="flex items-center gap-2">
-              <Button
-                variant={showPredictions ? "default" : "outline"}
-                size="sm"
-                onClick={toggleSmartSuggestions}
-                disabled={isLoadingPredictions}
-              >
-                {isLoadingPredictions ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <Sparkles className="w-4 h-4 mr-2" />
-                )}
-                Smart Suggestions
-              </Button>
-            </div>
           </div>
 
           {/* Breadcrumb */}
@@ -404,6 +453,36 @@ export function AACBoard({
             </button>
           )}
 
+          {/* Frequently Requested — derived leaves shown above the sub-categories */}
+          {path.length === 1 && (frequentItems.length > 0 || loadingFrequent) && (
+            <div className="rounded-xl border-2 border-amber-200 bg-gradient-to-br from-amber-50/60 to-orange-50/60 p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Sparkles className="w-4 h-4 text-amber-500" />
+                <h3 className="font-semibold text-sm text-gray-700">Frequently Requested</h3>
+                {loadingFrequent && <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-500" />}
+              </div>
+              {frequentItems.length > 0 && (
+                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
+                  {frequentItems.map((leaf) => (
+                    <button
+                      key={`freq-${leaf.word}`}
+                      onClick={() => handleNodeSelect(leaf)}
+                      className="flex flex-col items-center justify-center p-3 bg-white/70 hover:bg-white border-2 border-amber-200 hover:border-amber-400 rounded-xl transition-all duration-150 transform hover:scale-105 active:scale-95 min-h-[90px] shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-amber-400"
+                      aria-label={`Say ${leaf.word}`}
+                    >
+                      <span className="text-3xl mb-1" role="img" aria-hidden="true">
+                        {leaf.emoji}
+                      </span>
+                      <span className="text-xs font-semibold text-center leading-tight text-gray-700">
+                        {leaf.word}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Options Grid */}
           <div className={`grid gap-4 ${atLeafLevel ? "grid-cols-2 md:grid-cols-3 lg:grid-cols-5" : "grid-cols-2 md:grid-cols-3"}`}>
             {currentOptions.length === 0 ? (
@@ -436,42 +515,6 @@ export function AACBoard({
               })
             )}
           </div>
-
-          {/* Smart Predictions */}
-          {showPredictions && (
-            <div className="mt-4 pt-4 border-t">
-              <div className="flex items-center gap-2 mb-3">
-                <Sparkles className="w-4 h-4 text-primary" />
-                <h3 className="font-semibold text-sm">AI Suggestions</h3>
-              </div>
-              {isLoadingPredictions ? (
-                <div className="flex items-center justify-center p-6">
-                  <Loader2 className="w-6 h-6 animate-spin text-primary" />
-                </div>
-              ) : predictions.length > 0 ? (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  {predictions.map((item, index) => (
-                    <button
-                      key={`${item.word}-${index}`}
-                      onClick={() => handlePredictionSelect(item)}
-                      className="flex flex-col items-center justify-center p-4 bg-primary/5 hover:bg-primary/10 border-2 border-primary/20 hover:border-primary/50 rounded-xl transition-all duration-200 transform hover:scale-105 active:scale-95 min-h-[100px]"
-                    >
-                      <span className="text-3xl mb-2" role="img" aria-hidden="true">
-                        {item.emoji}
-                      </span>
-                      <span className="text-sm font-medium text-foreground text-center">
-                        {item.word}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground text-center p-4">
-                  No suggestions available. Try selecting a category first.
-                </p>
-              )}
-            </div>
-          )}
         </CardContent>
       </Card>
 
@@ -489,7 +532,11 @@ export function AACBoard({
               </li>
               <li>
                 <span className="font-medium text-foreground">Pick a category</span> like Food,
-                Play, or Emotions to start
+                Play, or Feelings to start
+              </li>
+              <li>
+                Tap a <span className="font-medium text-foreground">Frequently Requested</span> item
+                to say it right away, or choose a sub-category to keep browsing
               </li>
               <li>
                 <span className="font-medium text-foreground">Choose a sub-category</span> — this

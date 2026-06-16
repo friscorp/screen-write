@@ -28,3 +28,4 @@ export async function getDb(): Promise<Db> {
 // Collection names used across the app.
 export const LICENSES_COLLECTION = "licenses"
 export const USAGE_EVENTS_COLLECTION = "usage_events"
+export const USER_SETTINGS_COLLECTION = "user_settings"
