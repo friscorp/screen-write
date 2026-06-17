@@ -6,12 +6,13 @@ import { useState, useRef, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
-import { Trash2, Volume2, VolumeX, AlertCircle, Settings, ChevronDown, ChevronUp, Eye, EyeOff, Pencil, MessageSquare, Lock, LayoutGrid, ArrowLeft } from "lucide-react"
+import { Trash2, Volume2, VolumeX, AlertCircle, Settings, ChevronDown, ChevronUp, Eye, EyeOff, Pencil, MessageSquare, Lock, LayoutGrid, ArrowLeft, Ear } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Label } from "@/components/ui/label"
 import { Slider } from "@/components/ui/slider"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { AACBoard } from "@/components/aac-board"
+import { ListeningMode } from "@/components/listening-mode"
 import { ParentConfig } from "@/components/parent-config"
 import { loadVocabTree, saveVocabTree, type VocabCategory } from "@/lib/vocab-tree"
 
@@ -19,6 +20,8 @@ const HOLD_DURATION_MS = 3000
 const HOLD_CIRCUMFERENCE = 2 * Math.PI * 23
 const DEFAULT_DOCUMENT_TITLE = "speaker"
 const CHILD_NAME_MAX_LENGTH = 80
+const DEFAULT_WAKE_PHRASE = "Hey helper"
+const WAKE_PHRASE_MAX_LENGTH = 40
 
 interface SmartDrawingEditorProps {
   initialChildName?: string
@@ -40,6 +43,11 @@ export function SmartDrawingEditor({ initialChildName = "" }: SmartDrawingEditor
   const [pauseDuration, setPauseDuration] = useState(2) // Default 2 seconds
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [textAreaExpanded, setTextAreaExpanded] = useState(false)
+
+  // Listening Mode: passive wake-phrase mode the parent toggles on. Persisted so
+  // it stays active across reloads until the parent explicitly turns it off.
+  const [listeningEnabled, setListeningEnabled] = useState(false)
+  const [wakePhrase, setWakePhrase] = useState(DEFAULT_WAKE_PHRASE)
 
   const [vocabTree, setVocabTree] = useState<VocabCategory[]>([])
   const [parentConfigOpen, setParentConfigOpen] = useState(false)
@@ -173,6 +181,16 @@ export function SmartDrawingEditor({ initialChildName = "" }: SmartDrawingEditor
       setDrawEnabled(savedDrawEnabled === "true")
     }
 
+    const savedListeningEnabled = localStorage.getItem("listeningEnabled")
+    if (savedListeningEnabled !== null) {
+      setListeningEnabled(savedListeningEnabled === "true")
+    }
+
+    const savedWakePhrase = localStorage.getItem("wakePhrase")
+    if (savedWakePhrase && savedWakePhrase.trim()) {
+      setWakePhrase(savedWakePhrase)
+    }
+
     setVocabTree(loadVocabTree())
   }, [])
 
@@ -192,6 +210,14 @@ export function SmartDrawingEditor({ initialChildName = "" }: SmartDrawingEditor
   useEffect(() => {
     localStorage.setItem("drawEnabled", drawEnabled.toString())
   }, [drawEnabled])
+
+  useEffect(() => {
+    localStorage.setItem("listeningEnabled", listeningEnabled.toString())
+  }, [listeningEnabled])
+
+  useEffect(() => {
+    localStorage.setItem("wakePhrase", wakePhrase)
+  }, [wakePhrase])
 
   useEffect(() => {
     document.title = savedChildName || DEFAULT_DOCUMENT_TITLE
@@ -510,6 +536,15 @@ export function SmartDrawingEditor({ initialChildName = "" }: SmartDrawingEditor
     if (hour < 12) return "Good morning"
     if (hour < 17) return "Good afternoon"
     return "Good evening"
+  }
+
+  if (listeningEnabled) {
+    return (
+      <ListeningMode
+        wakePhrase={wakePhrase.trim() || DEFAULT_WAKE_PHRASE}
+        onExit={() => setListeningEnabled(false)}
+      />
+    )
   }
 
   if (focusMode) {
@@ -899,6 +934,53 @@ export function SmartDrawingEditor({ initialChildName = "" }: SmartDrawingEditor
                   {drawEnabled ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
                   {drawEnabled ? "Enabled" : "Disabled"}
                 </Button>
+              </div>
+            </div>
+
+            {/* Listening Mode */}
+            <div className="bg-white rounded-xl border shadow-sm p-5 space-y-4">
+              <Label className="text-base font-semibold">Listening Mode</Label>
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm font-medium">Enable Listening Mode</p>
+                  <p className="text-xs text-gray-500">
+                    Passively wait for a wake phrase, then offer the child simple answers to the question it heard. Uses
+                    the microphone and stays on until you turn it off.
+                  </p>
+                </div>
+                <Button
+                  variant={listeningEnabled ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => {
+                    setListeningEnabled(!listeningEnabled)
+                    if (!listeningEnabled) setSettingsOpen(false)
+                  }}
+                  className="flex items-center gap-2 shrink-0"
+                >
+                  <Ear className="w-4 h-4" />
+                  {listeningEnabled ? "On" : "Off"}
+                </Button>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="wake-phrase" className="text-sm font-medium">
+                  Wake phrase
+                </Label>
+                <input
+                  id="wake-phrase"
+                  type="text"
+                  value={wakePhrase}
+                  onChange={(e) => setWakePhrase(e.target.value)}
+                  onBlur={() => {
+                    if (!wakePhrase.trim()) setWakePhrase(DEFAULT_WAKE_PHRASE)
+                  }}
+                  maxLength={WAKE_PHRASE_MAX_LENGTH}
+                  placeholder={DEFAULT_WAKE_PHRASE}
+                  className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+                <p className="text-xs text-gray-500">
+                  The child or parent says this phrase before asking a question (e.g. &ldquo;{DEFAULT_WAKE_PHRASE}, do you
+                  want milk?&rdquo;).
+                </p>
               </div>
             </div>
 

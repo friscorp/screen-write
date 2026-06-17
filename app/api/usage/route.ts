@@ -2,7 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { getDb, USAGE_EVENTS_COLLECTION } from "@/lib/mongodb"
 import { getUserIdFromRequest } from "@/lib/auth"
 
-const ALLOWED_TYPES = new Set(["category_select", "navigation", "sentence"])
+const ALLOWED_TYPES = new Set(["category_select", "navigation", "sentence", "listen"])
 const MAX_EVENTS_PER_REQUEST = 100
 const MAX_PAYLOAD_BYTES = 4000
 

@@ -15,7 +15,7 @@ There are no tests in this project.
 
 ## Environment
 
-Requires `OPENAI_API_KEY` in `.env.local`. The model defaults to `gpt-4o` but can be overridden with `OPENAI_MODEL` (e.g., `openai/gpt-4o-mini`). The `OPENAI_MODEL` value is used directly by the Vercel AI SDK (`@ai-sdk/openai`) in `/api/aac/predict` and stripped of the `openai/` prefix when passed to the raw OpenAI SDK in `/api/analyze-drawing`.
+Requires `OPENAI_API_KEY` in `.env.local`. The model defaults to `gpt-4o` but can be overridden with `OPENAI_MODEL` (e.g., `openai/gpt-4o-mini`). All routes use the raw `openai` SDK and strip the `openai/` prefix from `OPENAI_MODEL` before passing the id. Structured-output routes (`predict`, `frequent`, `listen`, `generate-tree`) go through `lib/openai-structured.ts`, a thin `generateStructured(schema, name, prompt, maxTokens)` wrapper over `openai.chat.completions.parse` + `zodResponseFormat`. (The Vercel AI SDK `ai`/`@ai-sdk/openai` packages are no longer used — the installed `@ai-sdk/openai@3` emits spec-v2 models that `ai@4` rejects with `AI_UnsupportedModelVersionError`.)
 
 Licensing & analytics require MongoDB and a cookie secret:
 - `MONGODB_URI` — MongoDB connection string (license keys + usage analytics)
@@ -43,7 +43,13 @@ Usage analytics: `lib/usage-logger.ts` buffers interaction events client-side an
 - **Communicate tab** (default): renders `<AACBoard />` — a hierarchical symbol-based communication board
 - **Draw tab** (hidden unless enabled in Settings): a freehand canvas that auto-submits to the drawing analysis API after a configurable pause
 
-User preferences (voice on/off, pause duration, draw tab visibility, text area expanded state) are persisted to `localStorage`.
+User preferences (voice on/off, pause duration, draw tab visibility, text area expanded state, listening-mode enabled, wake phrase) are persisted to `localStorage`.
+
+When `listeningEnabled` is set (Settings → Listening Mode), `SmartDrawingEditor` renders `<ListeningMode />` full-screen instead of the tabs/Focus View — it takes precedence over both.
+
+### Listening Mode (`components/listening-mode.tsx`)
+
+A hands-free, full-screen mode the parent toggles on; it persists across reloads and only exits via the parent hold-to-exit (3s). The loop: a local Web Audio VAD (`AnalyserNode` RMS) records a single utterance with `MediaRecorder` on speech, uploads it to `/api/aac/transcribe` (Whisper). If the transcript contains the configurable wake phrase (default "Hey helper"), the text after it is the question (a lone wake phrase makes the *next* utterance the question); transcripts without the wake phrase are silently ignored so the loop keeps listening (this is the background-noise / unclear-input handling). The question goes to `/api/aac/listen`, whose response options render as large buttons. Tapping one speaks it via Web Speech API and returns to listening. Each completed interaction emits a `listen` usage event (`payload`: transcribed `question`, `chosen` response, and `utteranceMs`/`transcribeMs`/`latencyMs`/`fallback` timing-quality signals) — note it deliberately does **not** log the offered options. The `listen` type must stay listed in both `lib/usage-logger.ts` (`UsageEventType`) and the `/api/usage` `ALLOWED_TYPES` allowlist.
 
 ### AAC Board (`components/aac-board.tsx`)
 
@@ -63,9 +69,11 @@ Level-1 categories are managed in `components/parent-config.tsx`: the built-in a
 | `POST /api/auth/activate` | Validates a license key, sets the signed auth cookie | none (MongoDB lookup) |
 | `POST /api/usage` | Logs batched usage events against the cookie's `userId` | none (MongoDB insert) |
 | `POST /api/analyze-drawing` | Interprets canvas drawings as text | OpenAI SDK with vision (`image_url`), returns `{ success, text, newContent }` |
+| `POST /api/aac/transcribe` | Transcribes a Listening Mode audio clip (multipart `audio` field) | OpenAI Whisper (`whisper-1`), returns `{ text }`; soft-fails to `{ text: "" }` |
+| `POST /api/aac/listen` | Turns a heard question into simple child-friendly answer options | OpenAI SDK structured output via `generateStructured`; falls back to Yes/No/Maybe/I don't know |
 | `POST /api/aac/usage-frequent` | Aggregates the current user's `category_select` leaf events (`payload.leaf === true`, matched by `payload.path[0] === category`) into a most-selected-first list of words; powers the usage half of the Frequently Requested row | none (MongoDB aggregation over `usage_events`) |
-| `POST /api/aac/frequent` | Picks the items a child most likely requests within a category, from a supplied item list weighted by the category's preference hints; returns `{ words }` (the frontend maps them back to real leaves) | Vercel AI SDK `generateText` with structured output (`Output.object`); falls back to the supplied list on failure |
-| `POST /api/aac/predict` | Returns 4 next-word suggestions (unused by current frontend since the Smart Suggestions overlay was repurposed into the Frequently Requested row) | Vercel AI SDK `generateText` with structured output (`Output.object`) |
+| `POST /api/aac/frequent` | Picks the items a child most likely requests within a category, from a supplied item list weighted by the category's preference hints; returns `{ words }` (the frontend maps them back to real leaves) | OpenAI SDK structured output via `generateStructured`; falls back to the supplied list on failure |
+| `POST /api/aac/predict` | Returns 4 next-word suggestions (unused by current frontend since the Smart Suggestions overlay was repurposed into the Frequently Requested row) | OpenAI SDK structured output via `generateStructured` |
 | `POST /api/aac/speak` | TTS audio (unused by current frontend, which uses Web Speech API) | OpenAI `tts-1`, voice `nova` |
 
 ### UI Components

@@ -1,9 +1,7 @@
-import { generateText, Output } from "ai"
 import { type NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
 import { getUserIdFromRequest } from "@/lib/auth"
-
-const OPENAI_MODEL = process.env.OPENAI_MODEL || "openai/gpt-4o"
+import { generateStructured } from "@/lib/openai-structured"
 
 const VocabLeafSchema = z.object({
   word: z.string(),
@@ -55,16 +53,8 @@ Requirements:
 
 The sentence for each Level 3 item is spoken aloud by the AAC device when the child taps it.`
 
-    const result = await generateText({
-      model: OPENAI_MODEL,
-      prompt,
-      maxOutputTokens: 3000,
-      output: Output.object({
-        schema: VocabCategorySchema,
-      }),
-    })
+    const generated = await generateStructured(VocabCategorySchema, "vocab_category", prompt, 3000)
 
-    const generated = result.object
     if (!generated || !generated.children || generated.children.length === 0) {
       return NextResponse.json({ error: "Generation produced no output" }, { status: 500 })
     }

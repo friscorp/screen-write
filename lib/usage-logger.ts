@@ -5,7 +5,7 @@
 // logging adds minimal latency and survives page unloads. The user identity is
 // attached server-side from the signed auth cookie — never sent from here.
 
-export type UsageEventType = "category_select" | "navigation" | "sentence"
+export type UsageEventType = "category_select" | "navigation" | "sentence" | "listen"
 
 interface BufferedEvent {
   type: UsageEventType

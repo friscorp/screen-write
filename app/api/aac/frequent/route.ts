@@ -1,9 +1,7 @@
-import { generateText, Output } from "ai"
 import { type NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
 import { getUserIdFromRequest } from "@/lib/auth"
-
-const OPENAI_MODEL = process.env.OPENAI_MODEL || "openai/gpt-4o"
+import { generateStructured } from "@/lib/openai-structured"
 
 const FrequentSchema = z.object({
   words: z.array(z.string()),
@@ -41,18 +39,11 @@ ${itemList.map((i) => `- ${i.word}`).join("\n")}
 
 Return ${max} words (or fewer if the list is shorter), ordered most-requested first.`
 
-    const result = await generateText({
-      model: OPENAI_MODEL,
-      prompt,
-      maxOutputTokens: 200,
-      output: Output.object({
-        schema: FrequentSchema,
-      }),
-    })
+    const result = await generateStructured(FrequentSchema, "frequent_items", prompt, 200)
 
     const valid = new Set(itemList.map((i) => i.word.toLowerCase()))
     const seen = new Set<string>()
-    const chosen = ((result.object?.words || []) as string[])
+    const chosen = (result?.words || [])
       .filter((w) => {
         const key = String(w).toLowerCase()
         if (!valid.has(key) || seen.has(key)) return false

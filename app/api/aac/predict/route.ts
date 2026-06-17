@@ -1,9 +1,7 @@
-import { generateText, Output } from "ai"
 import { type NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
 import { getUserIdFromRequest } from "@/lib/auth"
-
-const OPENAI_MODEL = process.env.OPENAI_MODEL || "openai/gpt-4o"
+import { generateStructured } from "@/lib/openai-structured"
 
 // Schema for predictions
 const PredictionSchema = z.object({
@@ -38,17 +36,10 @@ Guidelines:
 
 Provide exactly 4 suggestions that are contextually appropriate and would help the child express themselves.`
 
-    const result = await generateText({
-      model: OPENAI_MODEL,
-      prompt,
-      maxOutputTokens: 200,
-      output: Output.object({
-        schema: PredictionSchema,
-      }),
-    })
+    const result = await generateStructured(PredictionSchema, "predictions", prompt, 200)
 
     // Extract the structured output
-    const predictions = result.object?.predictions || []
+    const predictions = result?.predictions || []
 
     return NextResponse.json({ predictions })
   } catch (error) {
