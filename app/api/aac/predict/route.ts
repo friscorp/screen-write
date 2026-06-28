@@ -38,7 +38,7 @@ Guidelines:
 
 Provide exactly 4 suggestions that are contextually appropriate and would help the child express themselves.`
 
-    const result = await generateText({
+    const { output } = await generateText({
       model: OPENAI_MODEL,
       prompt,
       maxOutputTokens: 200,
@@ -48,7 +48,7 @@ Provide exactly 4 suggestions that are contextually appropriate and would help t
     })
 
     // Extract the structured output
-    const predictions = result.object?.predictions || []
+    const predictions = output?.predictions || []
 
     return NextResponse.json({ predictions })
   } catch (error) {
