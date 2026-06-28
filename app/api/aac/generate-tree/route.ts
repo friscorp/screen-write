@@ -58,7 +58,7 @@ The sentence for each Level 3 item is spoken aloud by the AAC device when the ch
     const { output: generated } = await generateText({
       model: OPENAI_MODEL,
       prompt,
-      maxOutputTokens: 3000,
+      maxOutputTokens: 8000,
       output: Output.object({
         schema: VocabCategorySchema,
       }),
