@@ -55,7 +55,7 @@ Requirements:
 
 The sentence for each Level 3 item is spoken aloud by the AAC device when the child taps it.`
 
-    const result = await generateText({
+    const { output: generated } = await generateText({
       model: OPENAI_MODEL,
       prompt,
       maxOutputTokens: 3000,
@@ -64,7 +64,6 @@ The sentence for each Level 3 item is spoken aloud by the AAC device when the ch
       }),
     })
 
-    const generated = result.object
     if (!generated || !generated.children || generated.children.length === 0) {
       return NextResponse.json({ error: "Generation produced no output" }, { status: 500 })
     }

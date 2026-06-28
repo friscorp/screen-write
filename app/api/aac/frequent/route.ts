@@ -41,7 +41,7 @@ ${itemList.map((i) => `- ${i.word}`).join("\n")}
 
 Return ${max} words (or fewer if the list is shorter), ordered most-requested first.`
 
-    const result = await generateText({
+    const { output } = await generateText({
       model: OPENAI_MODEL,
       prompt,
       maxOutputTokens: 200,
@@ -52,7 +52,7 @@ Return ${max} words (or fewer if the list is shorter), ordered most-requested fi
 
     const valid = new Set(itemList.map((i) => i.word.toLowerCase()))
     const seen = new Set<string>()
-    const chosen = ((result.object?.words || []) as string[])
+    const chosen = ((output?.words || []) as string[])
       .filter((w) => {
         const key = String(w).toLowerCase()
         if (!valid.has(key) || seen.has(key)) return false
