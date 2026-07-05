@@ -1,9 +1,14 @@
-import { generateText, Output } from "ai"
+import { createOpenAI } from "@ai-sdk/openai"
+import { generateObject } from "ai"
 import { type NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
 import { getUserIdFromRequest } from "@/lib/auth"
 
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "openai/gpt-4o"
+// Strip the "openai/" prefix so the id can be passed to the @ai-sdk/openai provider.
+const openaiModelId = OPENAI_MODEL.replace(/^openai\//, "")
+
+const openai = createOpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
 // Schema for predictions
 const PredictionSchema = z.object({
@@ -38,13 +43,18 @@ Guidelines:
 
 Provide exactly 4 suggestions that are contextually appropriate and would help the child express themselves.`
 
-    const { output } = await generateText({
-      model: OPENAI_MODEL,
+    const { object: output } = await generateObject({
+      model: openai(openaiModelId),
       prompt,
-      maxOutputTokens: 200,
-      output: Output.object({
-        schema: PredictionSchema,
-      }),
+      // gpt-5-mini and other reasoning models spend output tokens on internal
+      // reasoning before emitting the object, so keep a generous budget here.
+      maxOutputTokens: 2000,
+      schema: PredictionSchema,
+      // Keep reasoning effort minimal: predictions need to feel instant, and
+      // minimal effort is much faster and cheaper (near-zero reasoning tokens).
+      providerOptions: {
+        openai: { reasoningEffort: "minimal" },
+      },
     })
 
     // Extract the structured output

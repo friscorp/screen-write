@@ -1,9 +1,14 @@
-import { generateText, Output } from "ai"
+import { createOpenAI } from "@ai-sdk/openai"
+import { generateObject } from "ai"
 import { type NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
 import { getUserIdFromRequest } from "@/lib/auth"
 
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "openai/gpt-4o"
+// Strip the "openai/" prefix so the id can be passed to the @ai-sdk/openai provider.
+const openaiModelId = OPENAI_MODEL.replace(/^openai\//, "")
+
+const openai = createOpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
 const VocabLeafSchema = z.object({
   word: z.string(),
@@ -55,13 +60,18 @@ Requirements:
 
 The sentence for each Level 3 item is spoken aloud by the AAC device when the child taps it.`
 
-    const { output: generated } = await generateText({
-      model: OPENAI_MODEL,
+    const { object: generated } = await generateObject({
+      model: openai(openaiModelId),
       prompt,
-      maxOutputTokens: 3000,
-      output: Output.object({
-        schema: VocabCategorySchema,
-      }),
+      // A full 5x5 tree is large, and reasoning models (e.g. gpt-5-mini) also
+      // spend output tokens thinking before emitting the object — keep this high.
+      maxOutputTokens: 8000,
+      schema: VocabCategorySchema,
+      // Keep reasoning effort minimal: this is a straightforward generation task,
+      // and minimal effort is much faster and cheaper (near-zero reasoning tokens).
+      providerOptions: {
+        openai: { reasoningEffort: "minimal" },
+      },
     })
 
     if (!generated || !generated.children || generated.children.length === 0) {
