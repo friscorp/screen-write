@@ -78,10 +78,24 @@ The sentence for each Level 3 item is spoken aloud by the AAC device when the ch
       return NextResponse.json({ error: "Generation produced no output" }, { status: 500 })
     }
 
+    // The model doesn't always hit exactly 5x5 — drop any blank filler entries
+    // it emits to pad out the count, rather than showing empty tiles later.
+    const children = generated.children
+      .filter((branch) => branch.word.trim().length > 0)
+      .map((branch) => ({
+        ...branch,
+        children: branch.children.filter((leaf) => leaf.word.trim().length > 0 && leaf.sentence.trim().length > 0),
+      }))
+      .filter((branch) => branch.children.length > 0)
+
+    if (children.length === 0) {
+      return NextResponse.json({ error: "Generation produced no usable output" }, { status: 500 })
+    }
+
     return NextResponse.json({
       word: categoryName.trim(),
       emoji: categoryEmoji || generated.emoji || "📋",
-      children: generated.children,
+      children,
     })
   } catch (error) {
     console.error("Tree generation error:", error)

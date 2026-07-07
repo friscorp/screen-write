@@ -41,6 +41,9 @@ export function SmartDrawingEditor({ initialChildName = "" }: SmartDrawingEditor
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [textAreaExpanded, setTextAreaExpanded] = useState(false)
 
+  // Simple mode (one tap to items, skipping sub-categories) is the default —
+  // testing showed two levels of choices before reaching an item overstimulated kids.
+  const [simpleMode, setSimpleMode] = useState(true)
   const [vocabTree, setVocabTree] = useState<VocabCategory[]>([])
   const [parentConfigOpen, setParentConfigOpen] = useState(false)
   const [savedChildName, setSavedChildName] = useState(initialChildName.trim())
@@ -173,6 +176,11 @@ export function SmartDrawingEditor({ initialChildName = "" }: SmartDrawingEditor
       setDrawEnabled(savedDrawEnabled === "true")
     }
 
+    const savedSimpleMode = localStorage.getItem("simpleMode")
+    if (savedSimpleMode !== null) {
+      setSimpleMode(savedSimpleMode === "true")
+    }
+
     setVocabTree(loadVocabTree())
   }, [])
 
@@ -192,6 +200,10 @@ export function SmartDrawingEditor({ initialChildName = "" }: SmartDrawingEditor
   useEffect(() => {
     localStorage.setItem("drawEnabled", drawEnabled.toString())
   }, [drawEnabled])
+
+  useEffect(() => {
+    localStorage.setItem("simpleMode", simpleMode.toString())
+  }, [simpleMode])
 
   useEffect(() => {
     document.title = savedChildName || DEFAULT_DOCUMENT_TITLE
@@ -516,7 +528,7 @@ export function SmartDrawingEditor({ initialChildName = "" }: SmartDrawingEditor
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50 p-4">
         <div className="max-w-6xl mx-auto">
-          <AACBoard focusMode={true} vocabTree={vocabTree} />
+          <AACBoard focusMode={true} vocabTree={vocabTree} simpleMode={simpleMode} />
         </div>
 
         {/* Hold-to-unlock floating button */}
@@ -613,7 +625,7 @@ export function SmartDrawingEditor({ initialChildName = "" }: SmartDrawingEditor
 
           {/* Communicate Tab Content */}
           <TabsContent value="communicate" className="mt-6">
-            <AACBoard vocabTree={vocabTree} />
+            <AACBoard vocabTree={vocabTree} simpleMode={simpleMode} />
           </TabsContent>
 
           {/* Draw Tab Content */}
@@ -962,6 +974,28 @@ export function SmartDrawingEditor({ initialChildName = "" }: SmartDrawingEditor
                 >
                   {textAreaExpanded ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
                   {textAreaExpanded ? "Shown" : "Hidden"}
+                </Button>
+              </div>
+            </div>
+
+            {/* Board complexity */}
+            <div className="bg-white rounded-xl border shadow-sm p-5 space-y-4">
+              <Label className="text-base font-semibold">Board Complexity</Label>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium">Simple mode (recommended)</p>
+                  <p className="text-xs text-gray-500">
+                    Tapping a category shows every item at once. Turn off to browse
+                    sub-categories first — more choices, but more taps to reach an item.
+                  </p>
+                </div>
+                <Button
+                  variant={simpleMode ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setSimpleMode(!simpleMode)}
+                  className="flex items-center gap-2 shrink-0"
+                >
+                  {simpleMode ? "Simple" : "Detailed"}
                 </Button>
               </div>
             </div>

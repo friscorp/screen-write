@@ -15,9 +15,15 @@ function isLeaf(node: DisplayItem): node is VocabLeaf {
   return "sentence" in node
 }
 
+// AI generation sometimes emits blank filler entries when it can't fill all 5
+// slots — never render those as empty tiles.
+function hasWord(node: DisplayItem): boolean {
+  return typeof node.word === "string" && node.word.trim().length > 0
+}
+
 // All Level 3 leaves under a top-level category, flattened across sub-categories.
 function collectLeaves(category: VocabCategory): VocabLeaf[] {
-  return category.children.flatMap((branch) => branch.children)
+  return category.children.flatMap((branch) => branch.children).filter(hasWord)
 }
 
 // Map a list of words (from usage counts or AI hints) back to the real leaves,
@@ -43,7 +49,8 @@ function mapWordsToLeaves(words: unknown, leaves: VocabLeaf[]): VocabLeaf[] {
 function defaultFrequent(category: VocabCategory, limit = 6): VocabLeaf[] {
   const result: VocabLeaf[] = []
   for (const branch of category.children) {
-    if (branch.children[0] && !result.includes(branch.children[0])) result.push(branch.children[0])
+    const firstValid = branch.children.find(hasWord)
+    if (firstValid && !result.includes(firstValid)) result.push(firstValid)
     if (result.length >= limit) return result.slice(0, limit)
   }
   for (const leaf of collectLeaves(category)) {
@@ -103,9 +110,13 @@ const QUICK_RESPONSES = [
 export function AACBoard({
   focusMode = false,
   vocabTree,
+  simpleMode = true,
 }: {
   focusMode?: boolean
   vocabTree: VocabCategory[]
+  // Simple mode skips the sub-category browsing step: tapping a category shows
+  // every item in it directly, so there's only ever one level to tap through.
+  simpleMode?: boolean
 }) {
   const [sentence, setSentence] = useState<string>("")
   const [path, setPath] = useState<PathItem[]>([])
@@ -222,9 +233,13 @@ export function AACBoard({
   }, [path])
 
   const getCurrentOptions = (): DisplayItem[] => {
-    if (path.length === 0) return vocabTree
+    if (path.length === 0) return vocabTree.filter(hasWord)
+    if (simpleMode && path.length === 1) {
+      // Skip the sub-category level entirely — show every item in the category at once.
+      return collectLeaves(path[0] as VocabCategory)
+    }
     const lastNode = path[path.length - 1]
-    return (lastNode as VocabCategory | VocabBranch).children ?? []
+    return ((lastNode as VocabCategory | VocabBranch).children ?? []).filter(hasWord)
   }
 
   const speakText = useCallback((text: string) => {
@@ -324,14 +339,16 @@ export function AACBoard({
   }, [sentence, speakText])
 
   const currentOptions = getCurrentOptions()
-  const atLeafLevel = path.length === 2
+  const atLeafLevel = simpleMode ? path.length === 1 : path.length === 2
 
   const currentLevelTitle =
     path.length === 0
       ? "Choose a category"
-      : path.length === 1
-        ? `What kind of ${path[0].word.toLowerCase()}?`
-        : "Pick one"
+      : simpleMode
+        ? "Pick one"
+        : path.length === 1
+          ? `What kind of ${path[0].word.toLowerCase()}?`
+          : "Pick one"
 
   return (
     <div className="space-y-4">
@@ -492,6 +509,13 @@ export function AACBoard({
             ) : (
               currentOptions.map((node) => {
                 const leaf = isLeaf(node)
+                // At the category level in simple mode, tapping in shows every leaf item
+                // directly, so surface that count instead of the (hidden) sub-category count.
+                const optionCount = leaf
+                  ? 0
+                  : path.length === 0 && simpleMode
+                    ? collectLeaves(node as VocabCategory).length
+                    : (node as VocabCategory | VocabBranch).children.filter(hasWord).length
                 return (
                   <button
                     key={node.word}
@@ -505,10 +529,8 @@ export function AACBoard({
                     <span className={`font-semibold text-foreground text-center text-balance ${leaf ? "text-base" : "text-lg"}`}>
                       {node.word}
                     </span>
-                    {!leaf && (node as VocabCategory | VocabBranch).children.length > 0 && (
-                      <span className="text-xs text-muted-foreground mt-1">
-                        {(node as VocabCategory | VocabBranch).children.length} options
-                      </span>
+                    {!leaf && optionCount > 0 && (
+                      <span className="text-xs text-muted-foreground mt-1">{optionCount} options</span>
                     )}
                   </button>
                 )
@@ -534,18 +556,28 @@ export function AACBoard({
                 <span className="font-medium text-foreground">Pick a category</span> like Food,
                 Play, or Feelings to start
               </li>
-              <li>
-                Tap a <span className="font-medium text-foreground">Frequently Requested</span> item
-                to say it right away, or choose a sub-category to keep browsing
-              </li>
-              <li>
-                <span className="font-medium text-foreground">Choose a sub-category</span> — this
-                narrows your message
-              </li>
-              <li>
-                <span className="font-medium text-foreground">Pick a specific item</span> — your
-                full message is spoken aloud automatically
-              </li>
+              {simpleMode ? (
+                <li>
+                  Tap a <span className="font-medium text-foreground">Frequently Requested</span> item,
+                  or <span className="font-medium text-foreground">pick a specific item</span> — your
+                  full message is spoken aloud automatically
+                </li>
+              ) : (
+                <>
+                  <li>
+                    Tap a <span className="font-medium text-foreground">Frequently Requested</span> item
+                    to say it right away, or choose a sub-category to keep browsing
+                  </li>
+                  <li>
+                    <span className="font-medium text-foreground">Choose a sub-category</span> — this
+                    narrows your message
+                  </li>
+                  <li>
+                    <span className="font-medium text-foreground">Pick a specific item</span> — your
+                    full message is spoken aloud automatically
+                  </li>
+                </>
+              )}
             </ol>
           </CardContent>
         </Card>
