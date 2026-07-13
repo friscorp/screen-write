@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Trash2, Volume2, ChevronLeft, Home } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import type { VocabCategory, VocabBranch, VocabLeaf } from "@/lib/vocab-tree"
+import type { QuickResponse } from "@/lib/quick-responses"
 import { logEvent } from "@/lib/usage-logger"
 
 type PathItem = VocabCategory | VocabBranch
@@ -47,63 +48,19 @@ function simpleModeLeaves(category: VocabCategory): VocabLeaf[] {
   return collectLeaves(category).slice(0, MAX_SIMPLE_MODE_ITEMS)
 }
 
-const QUICK_RESPONSES = [
-  {
-    word: "Yes",
-    emoji: "👍",
-    color:
-      "from-green-50 to-green-100 hover:from-green-100 hover:to-green-200 border-green-300 hover:border-green-500",
-  },
-  {
-    word: "No",
-    emoji: "👎",
-    color:
-      "from-red-50 to-red-100 hover:from-red-100 hover:to-red-200 border-red-300 hover:border-red-500",
-  },
-  {
-    word: "I don't know",
-    emoji: "🤷",
-    color:
-      "from-yellow-50 to-yellow-100 hover:from-yellow-100 hover:to-yellow-200 border-yellow-300 hover:border-yellow-500",
-  },
-  {
-    word: "Maybe",
-    emoji: "🤔",
-    color:
-      "from-purple-50 to-purple-100 hover:from-purple-100 hover:to-purple-200 border-purple-300 hover:border-purple-500",
-  },
-  {
-    word: "More",
-    emoji: "➕",
-    // Green-toned to read as "continue / keep going"
-    color:
-      "from-emerald-100 to-emerald-200 hover:from-emerald-200 hover:to-emerald-300 border-emerald-400 hover:border-emerald-600",
-  },
-  {
-    word: "All done",
-    emoji: "✋",
-    // Red-toned to read as opposite of More
-    color:
-      "from-rose-100 to-rose-200 hover:from-rose-200 hover:to-rose-300 border-rose-400 hover:border-rose-600",
-  },
-  {
-    word: "Again",
-    emoji: "🔁",
-    color:
-      "from-teal-50 to-teal-100 hover:from-teal-100 hover:to-teal-200 border-teal-300 hover:border-teal-500",
-  },
-]
-
 export function AACBoard({
   focusMode = false,
   vocabTree,
   simpleMode = true,
+  quickResponses,
 }: {
   focusMode?: boolean
   vocabTree: VocabCategory[]
   // Simple mode skips the sub-category browsing step: tapping a category shows
   // every item in it directly, so there's only ever one level to tap through.
   simpleMode?: boolean
+  // Configured in Settings → Quick Responses; only changes when a parent saves there.
+  quickResponses: QuickResponse[]
 }) {
   const [sentence, setSentence] = useState<string>("")
   const [path, setPath] = useState<PathItem[]>([])
@@ -218,7 +175,7 @@ export function AACBoard({
   }, [])
 
   const handleQuickResponse = useCallback(
-    (response: { word: string; emoji: string }) => {
+    (response: QuickResponse) => {
       logEvent("sentence", { text: response.word, source: "quick_response" })
       setSentence(response.word)
       setPath([])
@@ -285,34 +242,36 @@ export function AACBoard({
         </CardContent>
       </Card>
 
-      {/* Quick Responses — always visible */}
-      <Card className="border-2 border-emerald-200 bg-gradient-to-br from-emerald-50/50 to-teal-50/50">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base flex items-center gap-2">
-            <span className="text-lg">💬</span>
-            Quick Responses
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
-            {QUICK_RESPONSES.map((response) => (
-              <button
-                key={response.word}
-                onClick={() => handleQuickResponse(response)}
-                className={`flex flex-col items-center justify-center p-3 bg-gradient-to-br ${response.color} border-2 rounded-xl transition-all duration-150 transform hover:scale-105 active:scale-95 min-h-[90px] shadow-sm hover:shadow-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary`}
-                aria-label={`Say ${response.word}`}
-              >
-                <span className="text-3xl mb-1" role="img" aria-hidden="true">
-                  {response.emoji}
-                </span>
-                <span className="text-xs font-semibold text-center leading-tight text-gray-700">
-                  {response.word}
-                </span>
-              </button>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+      {/* Quick Responses — always visible, configured in Settings */}
+      {quickResponses.length > 0 && (
+        <Card className="border-2 border-emerald-200 bg-gradient-to-br from-emerald-50/50 to-teal-50/50">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <span className="text-lg">💬</span>
+              Quick Responses
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
+              {quickResponses.map((response) => (
+                <button
+                  key={response.id}
+                  onClick={() => handleQuickResponse(response)}
+                  className={`flex flex-col items-center justify-center p-3 bg-gradient-to-br ${response.color} border-2 rounded-xl transition-all duration-150 transform hover:scale-105 active:scale-95 min-h-[90px] shadow-sm hover:shadow-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary`}
+                  aria-label={`Say ${response.word}`}
+                >
+                  <span className="text-3xl mb-1" role="img" aria-hidden="true">
+                    {response.emoji}
+                  </span>
+                  <span className="text-xs font-semibold text-center leading-tight text-gray-700">
+                    {response.word}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Error */}
       {error && (

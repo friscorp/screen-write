@@ -13,7 +13,9 @@ import { Slider } from "@/components/ui/slider"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { AACBoard } from "@/components/aac-board"
 import { ParentConfig } from "@/components/parent-config"
+import { QuickResponsesConfig } from "@/components/quick-responses-config"
 import { loadVocabTree, saveVocabTree, type VocabCategory } from "@/lib/vocab-tree"
+import { loadQuickResponses, saveQuickResponses, type QuickResponse } from "@/lib/quick-responses"
 
 const HOLD_DURATION_MS = 3000
 const HOLD_CIRCUMFERENCE = 2 * Math.PI * 23
@@ -46,6 +48,8 @@ export function SmartDrawingEditor({ initialChildName = "" }: SmartDrawingEditor
   const [simpleMode, setSimpleMode] = useState(true)
   const [vocabTree, setVocabTree] = useState<VocabCategory[]>([])
   const [parentConfigOpen, setParentConfigOpen] = useState(false)
+  const [quickResponses, setQuickResponses] = useState<QuickResponse[]>([])
+  const [quickResponsesConfigOpen, setQuickResponsesConfigOpen] = useState(false)
   const [savedChildName, setSavedChildName] = useState(initialChildName.trim())
   const [childNameDraft, setChildNameDraft] = useState(initialChildName.trim())
   const [isSavingSettings, setIsSavingSettings] = useState(false)
@@ -182,6 +186,7 @@ export function SmartDrawingEditor({ initialChildName = "" }: SmartDrawingEditor
     }
 
     setVocabTree(loadVocabTree())
+    setQuickResponses(loadQuickResponses())
   }, [])
 
   // Save settings to localStorage
@@ -517,6 +522,11 @@ export function SmartDrawingEditor({ initialChildName = "" }: SmartDrawingEditor
     saveVocabTree(newTree)
   }
 
+  const handleQuickResponsesSave = (newResponses: QuickResponse[]) => {
+    setQuickResponses(newResponses)
+    saveQuickResponses(newResponses)
+  }
+
   const getGreeting = () => {
     const hour = new Date().getHours()
     if (hour < 12) return "Good morning"
@@ -528,7 +538,7 @@ export function SmartDrawingEditor({ initialChildName = "" }: SmartDrawingEditor
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50 p-4">
         <div className="max-w-6xl mx-auto">
-          <AACBoard focusMode={true} vocabTree={vocabTree} simpleMode={simpleMode} />
+          <AACBoard focusMode={true} vocabTree={vocabTree} simpleMode={simpleMode} quickResponses={quickResponses} />
         </div>
 
         {/* Hold-to-unlock floating button */}
@@ -625,7 +635,7 @@ export function SmartDrawingEditor({ initialChildName = "" }: SmartDrawingEditor
 
           {/* Communicate Tab Content */}
           <TabsContent value="communicate" className="mt-6">
-            <AACBoard vocabTree={vocabTree} simpleMode={simpleMode} />
+            <AACBoard vocabTree={vocabTree} simpleMode={simpleMode} quickResponses={quickResponses} />
           </TabsContent>
 
           {/* Draw Tab Content */}
@@ -827,6 +837,14 @@ export function SmartDrawingEditor({ initialChildName = "" }: SmartDrawingEditor
         onOpenChange={setParentConfigOpen}
       />
 
+      {/* Quick Responses configuration full page */}
+      <QuickResponsesConfig
+        responses={quickResponses}
+        onSave={handleQuickResponsesSave}
+        open={quickResponsesConfigOpen}
+        onOpenChange={setQuickResponsesConfigOpen}
+      />
+
       {/* Settings full page */}
       {settingsOpen && (
         <div className="fixed inset-0 z-50 bg-gradient-to-br from-blue-50 to-purple-50 overflow-y-auto">
@@ -1017,6 +1035,26 @@ export function SmartDrawingEditor({ initialChildName = "" }: SmartDrawingEditor
               >
                 <LayoutGrid className="w-4 h-4" />
                 Manage Categories
+              </Button>
+            </div>
+
+            {/* Quick Responses */}
+            <div className="bg-white rounded-xl border shadow-sm p-5 space-y-3">
+              <Label className="text-base font-semibold">Quick Responses</Label>
+              <p className="text-xs text-gray-500">
+                Add, edit, reorder, or remove the one-tap replies (Yes, No, Maybe…) shown above the board.
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setSettingsOpen(false)
+                  setQuickResponsesConfigOpen(true)
+                }}
+                className="flex items-center gap-2"
+              >
+                <MessageSquare className="w-4 h-4" />
+                Manage Quick Responses
               </Button>
             </div>
           </div>

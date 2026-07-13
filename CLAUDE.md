@@ -54,6 +54,8 @@ A 3-level tree navigation (`CATEGORY_TREE`) where each level narrows a sentence:
 
 Speech uses the browser Web Speech API (`window.speechSynthesis`). The board is intentionally "hardcoded" from whatever was last saved via Settings: it never fetches or reorders items live based on AI or usage data — the tree only changes when a parent adds, edits, or regenerates a category in `components/parent-config.tsx`. In **simple mode** (`simpleMode` prop, default on), tapping a top-level category flattens every sub-category's leaves into one grid (`simpleModeLeaves()` in `aac-board.tsx`), deduped by word and capped at 20 items (`MAX_SIMPLE_MODE_ITEMS`) so the board stays scannable regardless of how many leaves the category actually has.
 
+The **Quick Responses** row (Yes, No, Maybe…) above the board is likewise config-driven, not generated: `AACBoard` receives it as a `quickResponses` prop from `lib/quick-responses.ts` (`loadQuickResponses`/`saveQuickResponses`, persisted to `localStorage` under `aac-quick-responses`, same pattern as the vocab tree). It's managed in `components/quick-responses-config.tsx` (Settings → Manage Quick Responses): add, edit, reorder, delete, or reset to `DEFAULT_QUICK_RESPONSES`. The card hides itself entirely if the list is emptied.
+
 Level-1 categories are managed in `components/parent-config.tsx`: the built-in and custom categories can all be added, **edited** (name, emoji, preference hints), regenerated, or removed. The category `description` field holds the preference hints used by `/api/aac/generate-tree`, which targets 10–20 unique Level-3 items per category (not a fixed count) and dedupes/caps server-side as a safety net.
 
 ### API Routes
