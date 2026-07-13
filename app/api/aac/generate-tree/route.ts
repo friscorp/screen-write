@@ -10,6 +10,10 @@ const openaiModelId = OPENAI_MODEL.replace(/^openai\//, "")
 
 const openai = createOpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
+// Cap the total Level-3 items per category so simple-mode boards (which flatten
+// every sub-category into one grid) stay scannable instead of always maxing out.
+const MAX_LEAVES = 20
+
 const VocabLeafSchema = z.object({
   word: z.string(),
   emoji: z.string(),
@@ -48,15 +52,16 @@ export async function POST(request: NextRequest) {
 Create a structured vocabulary tree for the parent category: "${categoryName}" (${categoryEmoji || ""})${descriptionClause}
 
 Requirements:
-- Generate exactly 5 Level 2 sub-categories, each with an appropriate emoji
-- For each Level 2 sub-category, generate exactly 5 Level 3 specific items, each with an appropriate emoji
+- Generate 4 to 5 Level 2 sub-categories, each with an appropriate emoji
+- For each Level 2 sub-category, generate 3 to 5 Level 3 specific items, each with an appropriate emoji
+- Aim for a total of 10 to 20 Level 3 items across the whole category combined — do not pad sub-categories with filler just to hit a fixed count
+- Every Level 3 item's word must be unique within this category — never repeat the same word (even with different phrasing) across different sub-categories
 - For each Level 3 item, write a warm, enthusiastic sentence (10–15 words) that a child would say to express that need, want, or feeling
 - Sentences must be child-friendly and actionable. Examples:
     - Food: "I'm really thirsty, can I please have some water?" (not "I want water")
     - Play: "Can we go to the park? I really want to play outside!" (not "park")
     - Emotions: "I'm feeling so excited right now, something wonderful is happening!" (not "excited")
 - Keep all vocabulary familiar and age-appropriate for young children
-- Return exactly 5 children at Level 2 and exactly 5 children at Level 3 for each Level 2 node
 
 The sentence for each Level 3 item is spoken aloud by the AAC device when the child taps it.`
 
@@ -78,14 +83,26 @@ The sentence for each Level 3 item is spoken aloud by the AAC device when the ch
       return NextResponse.json({ error: "Generation produced no output" }, { status: 500 })
     }
 
-    // The model doesn't always hit exactly 5x5 — drop any blank filler entries
-    // it emits to pad out the count, rather than showing empty tiles later.
+    // The model doesn't always hit the target count exactly — drop any blank
+    // filler entries it emits, then dedupe by word (case-insensitive, across
+    // sub-categories) and cap the total so simple-mode boards stay scannable.
+    const seenWords = new Set<string>()
+    let remaining = MAX_LEAVES
     const children = generated.children
       .filter((branch) => branch.word.trim().length > 0)
-      .map((branch) => ({
-        ...branch,
-        children: branch.children.filter((leaf) => leaf.word.trim().length > 0 && leaf.sentence.trim().length > 0),
-      }))
+      .map((branch) => {
+        const leaves = []
+        for (const leaf of branch.children) {
+          if (remaining <= 0) break
+          if (leaf.word.trim().length === 0 || leaf.sentence.trim().length === 0) continue
+          const key = leaf.word.trim().toLowerCase()
+          if (seenWords.has(key)) continue
+          seenWords.add(key)
+          leaves.push(leaf)
+          remaining--
+        }
+        return { ...branch, children: leaves }
+      })
       .filter((branch) => branch.children.length > 0)
 
     if (children.length === 0) {

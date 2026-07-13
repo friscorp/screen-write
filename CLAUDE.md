@@ -52,9 +52,9 @@ A 3-level tree navigation (`CATEGORY_TREE`) where each level narrows a sentence:
 2. Sub-category with a `phrase` starter (e.g., "I want to drink")
 3. Leaf item that completes the phrase (e.g., "water")
 
-Speech uses the browser Web Speech API (`window.speechSynthesis`). When the child enters a top-level category (level 1), a **Frequently Requested** row appears above the sub-categories. It is a *blend*, built fresh on each entry: the child's real most-selected leaves first (from `/api/aac/usage-frequent`, refetched every time so it reacts to recent taps), then the AI/hints-derived picks (`/api/aac/frequent`, weighted by the category's preference hints and cached per category id), then a deterministic fallback (one leaf per sub-category) to fill any remaining slots — capped at 6, deduped. Tapping one speaks the leaf's full sentence, same as selecting it normally. The board calls the usage logger's `flush()` before reading usage so very recent taps are counted.
+Speech uses the browser Web Speech API (`window.speechSynthesis`). The board is intentionally "hardcoded" from whatever was last saved via Settings: it never fetches or reorders items live based on AI or usage data — the tree only changes when a parent adds, edits, or regenerates a category in `components/parent-config.tsx`. In **simple mode** (`simpleMode` prop, default on), tapping a top-level category flattens every sub-category's leaves into one grid (`simpleModeLeaves()` in `aac-board.tsx`), deduped by word and capped at 20 items (`MAX_SIMPLE_MODE_ITEMS`) so the board stays scannable regardless of how many leaves the category actually has.
 
-Level-1 categories are managed in `components/parent-config.tsx`: the built-in and custom categories can all be added, **edited** (name, emoji, preference hints), regenerated, or removed. The category `description` field holds the preference hints used by both `/api/aac/generate-tree` and `/api/aac/frequent`.
+Level-1 categories are managed in `components/parent-config.tsx`: the built-in and custom categories can all be added, **edited** (name, emoji, preference hints), regenerated, or removed. The category `description` field holds the preference hints used by `/api/aac/generate-tree`, which targets 10–20 unique Level-3 items per category (not a fixed count) and dedupes/caps server-side as a safety net.
 
 ### API Routes
 
@@ -63,9 +63,8 @@ Level-1 categories are managed in `components/parent-config.tsx`: the built-in a
 | `POST /api/auth/activate` | Validates a license key, sets the signed auth cookie | none (MongoDB lookup) |
 | `POST /api/usage` | Logs batched usage events against the cookie's `userId` | none (MongoDB insert) |
 | `POST /api/analyze-drawing` | Interprets canvas drawings as text | OpenAI SDK with vision (`image_url`), returns `{ success, text, newContent }` |
-| `POST /api/aac/usage-frequent` | Aggregates the current user's `category_select` leaf events (`payload.leaf === true`, matched by `payload.path[0] === category`) into a most-selected-first list of words; powers the usage half of the Frequently Requested row | none (MongoDB aggregation over `usage_events`) |
-| `POST /api/aac/frequent` | Picks the items a child most likely requests within a category, from a supplied item list weighted by the category's preference hints; returns `{ words }` (the frontend maps them back to real leaves) | Vercel AI SDK `generateText` with structured output (`Output.object`); falls back to the supplied list on failure |
-| `POST /api/aac/predict` | Returns 4 next-word suggestions (unused by current frontend since the Smart Suggestions overlay was repurposed into the Frequently Requested row) | Vercel AI SDK `generateText` with structured output (`Output.object`) |
+| `POST /api/aac/generate-tree` | Generates (or regenerates) a category's full sub-category/item tree from its name, emoji, and preference hints; targets 10–20 unique Level-3 items, deduped and capped server-side | Vercel AI SDK `generateObject` |
+| `POST /api/aac/predict` | Returns 4 next-word suggestions (unused by current frontend) | Vercel AI SDK `generateText` with structured output (`Output.object`) |
 | `POST /api/aac/speak` | TTS audio (unused by current frontend, which uses Web Speech API) | OpenAI `tts-1`, voice `nova` |
 
 ### UI Components
