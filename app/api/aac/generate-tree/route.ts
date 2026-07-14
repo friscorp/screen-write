@@ -44,17 +44,20 @@ export async function POST(request: NextRequest) {
     }
 
     const descriptionClause = categoryDescription?.trim()
-      ? `\n\nThe parent/caregiver has provided these hints about the child's preferences for this category:\n"${categoryDescription.trim()}"\nUse these preferences to tailor the vocabulary choices so they feel personal and relevant to this specific child.`
+      ? `\n\nThe parent/caregiver has provided these hints about the child's preferences for this category:\n"${categoryDescription.trim()}"\n\nIf these hints name specific items, an exact list, or an exact count (e.g. "only these 4 options", "just these 8 items, nothing more"), treat that as a hard constraint: generate EXACTLY those items and no others. Do not invent extra items to pad toward the defaults below, and do not add sub-categories beyond what's needed to hold the requested items. If the hints are general preferences rather than an exact list (e.g. "loves dinosaurs and building with LEGO"), use them to tailor which items you pick within the defaults below instead.`
       : ""
 
     const prompt = `You are creating vocabulary for an AAC (Augmentative and Alternative Communication) app for children ages 4–8 with communication challenges.
 
 Create a structured vocabulary tree for the parent category: "${categoryName}" (${categoryEmoji || ""})${descriptionClause}
 
-Requirements:
+Default requirements (only apply when the hints above don't specify an exact list or count):
 - Generate 4 to 5 Level 2 sub-categories, each with an appropriate emoji
 - For each Level 2 sub-category, generate 3 to 5 Level 3 specific items, each with an appropriate emoji
 - Aim for a total of 10 to 20 Level 3 items across the whole category combined — do not pad sub-categories with filler just to hit a fixed count
+
+Always required, regardless of hints:
+- Every Level 3 item sits under a Level 2 sub-category — group items under as few or as many sub-categories as make sense (a single sub-category holding all items is fine for a short explicit list)
 - Every Level 3 item's word must be unique within this category — never repeat the same word (even with different phrasing) across different sub-categories
 - For each Level 3 item, write a warm, enthusiastic sentence (10–15 words) that a child would say to express that need, want, or feeling
 - Sentences must be child-friendly and actionable. Examples:

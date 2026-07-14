@@ -56,7 +56,7 @@ Speech uses the browser Web Speech API (`window.speechSynthesis`). The board is 
 
 The **Quick Responses** row (Yes, No, Maybe…) above the board is likewise config-driven, not generated: `AACBoard` receives it as a `quickResponses` prop from `lib/quick-responses.ts` (`loadQuickResponses`/`saveQuickResponses`, persisted to `localStorage` under `aac-quick-responses`, same pattern as the vocab tree). It's managed in `components/quick-responses-config.tsx` (Settings → Manage Quick Responses): add, edit, reorder, delete, or reset to `DEFAULT_QUICK_RESPONSES`. The card hides itself entirely if the list is emptied.
 
-Level-1 categories are managed in `components/parent-config.tsx`: the built-in and custom categories can all be added, **edited** (name, emoji, preference hints), regenerated, or removed. The category `description` field holds the preference hints used by `/api/aac/generate-tree`, which targets 10–20 unique Level-3 items per category (not a fixed count) and dedupes/caps server-side as a safety net.
+Level-1 categories are managed in `components/parent-config.tsx`: the built-in and custom categories can all be added, **edited** (name, emoji, preference hints), regenerated, or removed. The category `description` field holds the preference hints used by `/api/aac/generate-tree`, which by default targets 10–20 unique Level-3 items per category (not a fixed count) — but if the hints name an exact list or count (e.g. "only these 4 options"), that overrides the default range and the model is instructed to generate exactly those items and no more. Dedupe/cap (at `MAX_LEAVES`, 20) still runs server-side as a safety net regardless.
 
 ### API Routes
 
